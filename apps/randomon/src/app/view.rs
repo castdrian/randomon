@@ -225,9 +225,14 @@ impl Randomon {
     }
 
     fn generation_label(&self) -> String {
-        match self.caps.generation {
-            Some(generation) => format!("Generation {generation} · provisional"),
-            None => "Any generation".to_owned(),
+        let detected_by_engine = self
+            .rom
+            .as_ref()
+            .is_some_and(|loaded| loaded.engine.is_some());
+        match (self.caps.generation, detected_by_engine) {
+            (Some(generation), true) => format!("Generation {generation}"),
+            (Some(generation), false) => format!("Generation {generation} · preview"),
+            (None, _) => "Any generation".to_owned(),
         }
     }
 
@@ -399,7 +404,9 @@ impl Randomon {
         let randomize = button(text("Randomize").size(16))
             .padding([10, 28])
             .style(style::primary_button)
-            .on_press_maybe(self.rom.as_ref().map(|_| Message::Randomize));
+            .on_press_maybe(
+                (self.rom.is_some() && !self.randomizing).then_some(Message::Randomize),
+            );
 
         let status: Element<'_, Message> = match &self.status {
             Some(Status::Info(message)) => text(message).size(12).style(style::muted_text).into(),

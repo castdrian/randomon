@@ -12,6 +12,10 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
+randomon_core.workspace = true
+randomon_gen1.workspace = true
+randomon_java.workspace = true
+randomon_settings.workspace = true
 
 
 

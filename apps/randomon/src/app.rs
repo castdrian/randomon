@@ -10,6 +10,7 @@ use randomon_settings::{CustomNames, Settings};
 
 use crate::capabilities::Capabilities;
 use crate::debug::DebugBoot;
+use crate::engine;
 use crate::options::spec::Action;
 use crate::options::{self, effective, rules};
 use crate::rom::{self, LoadedRom};
@@ -52,6 +53,7 @@ struct Randomon {
     dialog: Option<Dialog>,
     custom_names: CustomNames,
     status: Option<Status>,
+    randomizing: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -87,6 +89,8 @@ enum Message {
     SeedChanged(String),
     RollSeed,
     Randomize,
+    OutputChosen(Option<PathBuf>),
+    Randomized(Result<engine::RandomizedGame, String>),
     OpenLink(&'static str),
 }
 
@@ -110,6 +114,7 @@ impl Randomon {
             dialog: None,
             custom_names: CustomNames::default_names(),
             status: None,
+            randomizing: false,
         };
         state.settings_changed();
         state
@@ -236,11 +241,27 @@ impl Randomon {
                 }
             }
             Message::RollSeed => self.seed = random_seed().to_string(),
-            Message::Randomize => {
-                self.status = Some(Status::Info(
-                    "The randomization engine is still being ported. This build only previews the interface."
-                        .to_owned(),
-                ));
+            Message::Randomize => return self.start_randomization(),
+            Message::OutputChosen(None) => {}
+            Message::OutputChosen(Some(output)) => return self.run_randomization(output),
+            Message::Randomized(result) => {
+                self.randomizing = false;
+                self.status = Some(match result {
+                    Ok(done) => Status::Info(match &done.log {
+                        Some(log) => format!(
+                            "Saved {} and its log {} (check value {:08X})",
+                            done.output.display(),
+                            log.display(),
+                            done.check_value
+                        ),
+                        None => format!(
+                            "Saved {} (check value {:08X})",
+                            done.output.display(),
+                            done.check_value
+                        ),
+                    }),
+                    Err(error) => Status::Error(format!("Randomization failed: {error}")),
+                });
             }
             Message::OpenLink(url) => support::open_link(url),
         }
@@ -293,15 +314,64 @@ impl Randomon {
         }
     }
 
+    fn start_randomization(&mut self) -> Task<Message> {
+        let Some(loaded) = &self.rom else {
+            return Task::none();
+        };
+        let Some(game) = loaded.engine.clone() else {
+            self.status = Some(Status::Error(
+                "Randomizing this generation isn't ported yet. Use UPR ZX for it for now."
+                    .to_owned(),
+            ));
+            return Task::none();
+        };
+        if self.seed.trim().parse::<i64>().is_err() {
+            self.status = Some(Status::Error(
+                "The seed has to be a whole number.".to_owned(),
+            ));
+            return Task::none();
+        }
+        Task::perform(
+            engine::choose_output(game, loaded.file_name.clone()),
+            Message::OutputChosen,
+        )
+    }
+
+    fn run_randomization(&mut self, output: PathBuf) -> Task<Message> {
+        let Some(game) = self.rom.as_ref().and_then(|loaded| loaded.engine.clone()) else {
+            return Task::none();
+        };
+        let Ok(seed) = self.seed.trim().parse::<i64>() else {
+            return Task::none();
+        };
+        self.randomizing = true;
+        self.status = Some(Status::Info("Randomizing…".to_owned()));
+        Task::perform(
+            engine::randomize(game, self.output_settings(), seed, output),
+            Message::Randomized,
+        )
+    }
+
     fn load_rom(&mut self, path: PathBuf) {
         match rom::inspect(path) {
             Ok(loaded) => {
                 self.status = Some(Status::Info(format!("Loaded {}", loaded.file_name)));
                 self.game_update = None;
-                self.caps = match self.generation_override {
-                    Some(generation) => Capabilities::for_generation(generation),
-                    None => Capabilities::provisional(loaded.platform),
+                self.caps = match (&loaded.engine, self.generation_override) {
+                    (Some(game), _) => game.capabilities,
+                    (None, Some(generation)) => Capabilities::for_generation(generation),
+                    (None, None) => Capabilities::provisional(loaded.platform),
                 };
+                self.status = Some(match &loaded.engine {
+                    Some(game) => Status::Info(format!(
+                        "Loaded {} ({}, generation {}, support: {})",
+                        game.rom_name, game.rom_code, game.generation, game.support_level
+                    )),
+                    None => Status::Info(format!(
+                        "Loaded {}. Randomizing this generation isn't ported yet, so its options are a preview.",
+                        loaded.file_name
+                    )),
+                });
                 self.starters = choices::starter_choices(&self.caps);
                 self.rom = Some(loaded);
                 self.limit_restrictions_to_game();
