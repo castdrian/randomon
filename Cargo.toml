@@ -1,0 +1,48 @@
+[workspace]
+resolver = "3"
+members = [
+    "apps/randomon",
+    "apps/randomon-cli",
+    "crates/randomon_java",
+    "crates/randomon_formats",
+    "crates/randomon_data",
+    "crates/randomon_settings",
+    "crates/randomon_core",
+    "crates/randomon_log",
+]
+default-members = ["apps/randomon"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+authors = ["castdrian"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/castdrian/randomon"
+rust-version = "1.90"
+
+[workspace.dependencies]
+randomon_java = { path = "crates/randomon_java" }
+randomon_formats = { path = "crates/randomon_formats" }
+randomon_data = { path = "crates/randomon_data" }
+randomon_settings = { path = "crates/randomon_settings" }
+randomon_core = { path = "crates/randomon_core" }
+randomon_log = { path = "crates/randomon_log" }
+thiserror = "2.0"
+base64 = "0.22"
+crc32fast = "1.5"
+indexmap = "2.14"
+log = "0.4"
+env_logger = "0.11"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = "symbols"
+panic = "abort"

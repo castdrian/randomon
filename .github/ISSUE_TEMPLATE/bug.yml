@@ -1,0 +1,41 @@
+name: Bug report
+description: Something randomized wrong, crashed, or differs from UPR ZX
+labels: ["bug"]
+body:
+  - type: input
+    id: game
+    attributes:
+      label: Game and version
+      placeholder: Pokémon Alpha Sapphire, 1.4 update, EUR
+    validations:
+      required: true
+  - type: input
+    id: settings
+    attributes:
+      label: Settings string
+      description: Copy it from the action bar or the log.
+    validations:
+      required: true
+  - type: input
+    id: seed
+    attributes:
+      label: Seed
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: If the output differs from UPR ZX 4.6.1 with the same ROM, settings and seed, say so here.
+    validations:
+      required: true

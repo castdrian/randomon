@@ -1,0 +1,11 @@
+/target
+.DS_Store
+/dist
+*.gba
+*.gbc
+*.gb
+*.nds
+*.3ds
+*.cia
+*.cxi
+/roms
