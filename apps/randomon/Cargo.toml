@@ -1,0 +1,23 @@
+[package]
+name = "randomon"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A modern, cross-platform Pokémon game randomizer compatible with Universal Pokemon Randomizer ZX"
+
+[dependencies]
+iced = { version = "0.14", features = ["advanced", "image", "svg", "tokio"] }
+rfd = "0.17"
+open = "5.3"
+log.workspace = true
+env_logger.workspace = true
+
+getrandom = "0.4"
+
+[lints]
+workspace = true
+
+[build-dependencies]
+winresource = "0.1"

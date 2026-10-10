@@ -1,0 +1,43 @@
+name: Dependabot auto-merge
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - id: pull_request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          pr_number="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/pulls" --jq '[.[] | select(.state == "open" and .base.ref == "main" and .user.login == "dependabot[bot]")][0].number // empty')"
+          printf 'number=%s\n' "$pr_number" >> "$GITHUB_OUTPUT"
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pull_request.outputs.number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          [ -n "$PR_NUMBER" ] || exit 0
+          pull_request="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '[.user.login, .head.sha, .state] | @tsv')"
+          IFS=$'\t' read -r author head_sha state <<< "$pull_request"
+          [ "$author" = "dependabot[bot]" ] || exit 0
+          [ "$head_sha" = "$HEAD_SHA" ] || exit 0
+          [ "$state" = "open" ] || exit 0
+          gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --match-head-commit "$HEAD_SHA" --squash --delete-branch
+          pull_request="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '[.state, .merged] | @tsv')"
+          IFS=$'\t' read -r state merged <<< "$pull_request"
+          if [ "$state" != "closed" ] || [ "$merged" != "true" ]; then
+            printf 'GitHub did not merge Dependabot PR #%s after successful CI\n' "$PR_NUMBER" >&2
+            exit 1
+          fi

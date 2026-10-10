@@ -1,0 +1,267 @@
+name: Build and Release App
+
+on:
+    workflow_dispatch:
+    workflow_call:
+
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
+
+env:
+    CARGO_TERM_COLOR: always
+
+jobs:
+    version:
+        runs-on: ubuntu-latest
+        outputs:
+            version: ${{ steps.version.outputs.version }}
+            build-number: ${{ steps.version.outputs.build-number }}
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  fetch-depth: 0
+            - id: version
+              run: |
+                  echo "version=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+                  echo "build-number=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+
+    linux:
+        needs: version
+        strategy:
+            matrix:
+                include:
+                    - runner: ubuntu-24.04
+                      arch: x86_64
+                    - runner: ubuntu-24.04-arm
+                      arch: aarch64
+        runs-on: ${{ matrix.runner }}
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  submodules: true
+            - uses: dtolnay/rust-toolchain@stable
+            - name: Install dependencies
+              run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libfontconfig1-dev pkg-config libfuse2 file
+            - uses: Swatinem/rust-cache@v2
+            - run: cargo build --release -p randomon -p randomon-cli
+            - name: Package tarball and AppImage
+              env:
+                  VERSION: ${{ needs.version.outputs.version }}
+                  ARCH: ${{ matrix.arch }}
+              run: |
+                  mkdir -p dist
+                  tar -C target/release -czf "dist/Randomon-$VERSION-linux-$ARCH.tar.gz" randomon randomon-cli
+                  APPDIR=build/Randomon.AppDir
+                  mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/icons/hicolor/512x512/apps"
+                  cp target/release/randomon target/release/randomon-cli "$APPDIR/usr/bin/"
+                  cp package/linux/randomon.desktop "$APPDIR/"
+                  cp assets/icon-512.png "$APPDIR/randomon.png"
+                  cp assets/icon-512.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/randomon.png"
+                  ln -s usr/bin/randomon "$APPDIR/AppRun"
+                  curl -fsSL -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$ARCH.AppImage"
+                  chmod +x appimagetool
+                  ./appimagetool --appimage-extract-and-run "$APPDIR" "dist/Randomon-$VERSION-linux-$ARCH.AppImage"
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: linux-${{ matrix.arch }}
+                  path: dist/*
+
+    windows:
+        needs: version
+        strategy:
+            matrix:
+                include:
+                    - runner: windows-latest
+                      arch: x86_64
+                      target: x86_64-pc-windows-msvc
+                    - runner: windows-11-arm
+                      arch: arm64
+                      target: aarch64-pc-windows-msvc
+        runs-on: ${{ matrix.runner }}
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  submodules: true
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.target }}
+            - uses: Swatinem/rust-cache@v2
+            - run: cargo build --release -p randomon -p randomon-cli --target ${{ matrix.target }}
+            - name: Install NSIS
+              run: choco install nsis -y
+            - name: Package portable build and installer
+              shell: pwsh
+              env:
+                  VERSION: ${{ needs.version.outputs.version }}
+              run: |
+                  $bin = "target/${{ matrix.target }}/release"
+                  New-Item -ItemType Directory -Force -Path dist, build/nsis | Out-Null
+                  Copy-Item "$bin/randomon.exe" "dist/Randomon-$env:VERSION-windows-${{ matrix.arch }}-portable.exe"
+                  Copy-Item "$bin/randomon-cli.exe" "dist/randomon-cli-$env:VERSION-windows-${{ matrix.arch }}.exe"
+                  Copy-Item package/windows/installer.nsi, assets/icon.ico, "$bin/randomon.exe", "$bin/randomon-cli.exe" build/nsis/
+                  & "C:\Program Files (x86)\NSIS\makensis.exe" "/DAPPVERSION=$env:VERSION" build/nsis/installer.nsi
+                  Move-Item build/nsis/installer.exe "dist/Randomon-$env:VERSION-windows-${{ matrix.arch }}-setup.exe"
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: windows-${{ matrix.arch }}
+                  path: dist/*
+
+    macos:
+        needs: version
+        runs-on: macos-26
+        timeout-minutes: 60
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  submodules: true
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: aarch64-apple-darwin, x86_64-apple-darwin
+            - uses: Swatinem/rust-cache@v2
+            - name: Build universal binaries
+              run: |
+                  cargo build --release -p randomon -p randomon-cli --target aarch64-apple-darwin
+                  cargo build --release -p randomon -p randomon-cli --target x86_64-apple-darwin
+                  mkdir -p build/universal
+                  for binary in randomon randomon-cli; do
+                    lipo -create \
+                      "target/aarch64-apple-darwin/release/$binary" \
+                      "target/x86_64-apple-darwin/release/$binary" \
+                      -output "build/universal/$binary"
+                  done
+
+            - name: Assemble app bundle
+              env:
+                  VERSION: ${{ needs.version.outputs.version }}
+                  BUILD_NUMBER: ${{ needs.version.outputs.build-number }}
+              run: |
+                  APP=build/Randomon.app
+                  mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+                  cp build/universal/randomon "$APP/Contents/MacOS/randomon"
+                  cp build/universal/randomon-cli "$APP/Contents/MacOS/randomon-cli"
+                  cp assets/icon.icns "$APP/Contents/Resources/icon.icns"
+                  sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD_NUMBER/" package/macos/Info.plist > "$APP/Contents/Info.plist"
+
+            - name: Fetch Signing Assets
+              uses: castdrian/setup-apple-certificate@main
+              id: cert
+              with:
+                  app-store-connect-key-id: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+                  app-store-connect-issuer-id: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+                  app-store-connect-private-key: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+                  distribution-private-key: ${{ secrets.DISTRIBUTION_PRIVATE_KEY_BASE64 }}
+                  bundle-identifier: dev.adrian.randomon
+                  certificate-type: DEVELOPER_ID
+
+            - name: Install Signing Assets
+              env:
+                  P12_FILE_BASE64: ${{ steps.cert.outputs.p12-certificate-base64 }}
+                  P12_PASSWORD: ${{ steps.cert.outputs.p12-password }}
+              run: |
+                  KEYCHAIN_PATH="$RUNNER_TEMP/randomon-signing.keychain-db"
+                  KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+                  P12_PATH="$RUNNER_TEMP/randomon-signing.p12"
+                  echo "$P12_FILE_BASE64" | base64 --decode > "$P12_PATH"
+                  security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+                  security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+                  security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+                  security import "$P12_PATH" -k "$KEYCHAIN_PATH" -f pkcs12 -T /usr/bin/codesign -T /usr/bin/security -P "$P12_PASSWORD"
+                  security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+                  security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+                  rm -f "$P12_PATH"
+
+            - name: Sign app
+              env:
+                  IDENTITY: ${{ steps.cert.outputs.codesign-identity }}
+              run: |
+                  APP=build/Randomon.app
+                  codesign --force --options runtime --timestamp --entitlements package/macos/entitlements.plist --sign "$IDENTITY" "$APP/Contents/MacOS/randomon-cli"
+                  codesign --force --options runtime --timestamp --entitlements package/macos/entitlements.plist --sign "$IDENTITY" "$APP"
+                  codesign --verify --deep --strict --verbose=2 "$APP"
+                  codesign --force --options runtime --timestamp --sign "$IDENTITY" build/universal/randomon-cli
+
+            - name: Notarize and staple app
+              run: |
+                  trap 'rm -f /tmp/notary_key.p8' EXIT
+                  echo "${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}" | base64 --decode > /tmp/notary_key.p8
+                  /usr/bin/ditto -c -k --keepParent build/Randomon.app build/notarize-submit.zip
+                  xcrun notarytool submit build/notarize-submit.zip \
+                    --key /tmp/notary_key.p8 \
+                    --key-id "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
+                    --issuer "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" \
+                    --wait
+                  xcrun stapler staple build/Randomon.app
+
+            - name: Package DMG and CLI
+              env:
+                  VERSION: ${{ needs.version.outputs.version }}
+                  IDENTITY: ${{ steps.cert.outputs.codesign-identity }}
+              run: |
+                  mkdir -p dist build/dmg
+                  cp -R build/Randomon.app build/dmg/
+                  ln -s /Applications build/dmg/Applications
+                  DMG="dist/Randomon-$VERSION-macos-universal.dmg"
+                  hdiutil create -volname "Randomon" -srcfolder build/dmg -ov -format UDZO "$DMG"
+                  codesign --force --timestamp --sign "$IDENTITY" "$DMG"
+                  /usr/bin/ditto -c -k build/universal/randomon-cli "dist/randomon-cli-$VERSION-macos-universal.zip"
+
+            - name: Notarize and staple DMG
+              env:
+                  VERSION: ${{ needs.version.outputs.version }}
+              run: |
+                  trap 'rm -f /tmp/notary_key.p8' EXIT
+                  echo "${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}" | base64 --decode > /tmp/notary_key.p8
+                  DMG="dist/Randomon-$VERSION-macos-universal.dmg"
+                  xcrun notarytool submit "$DMG" \
+                    --key /tmp/notary_key.p8 \
+                    --key-id "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
+                    --issuer "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" \
+                    --wait
+                  xcrun stapler staple "$DMG"
+
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: macos-universal
+                  path: dist/*
+
+            - name: Remove Signing Assets
+              if: always()
+              run: security delete-keychain "$RUNNER_TEMP/randomon-signing.keychain-db" || true
+
+    publish:
+        needs: [version, linux, windows, macos]
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - uses: actions/checkout@v7
+            - uses: actions/download-artifact@v8
+              with:
+                  path: dist
+                  merge-multiple: true
+            - name: Write checksums
+              run: cd dist && sha256sum -- * > SHA256SUMS.txt
+            - name: Extract release notes from CHANGELOG.md
+              env:
+                  VERSION: ${{ needs.version.outputs.version }}
+              run: |
+                  awk -v ver="$VERSION" '
+                      /^## \[/ {
+                          if (found) exit
+                          if ($0 ~ ("^## \\[" ver "\\]")) { found=1; next }
+                          next
+                      }
+                      found { print }
+                  ' CHANGELOG.md > release_notes.md
+                  if [ ! -s release_notes.md ]; then
+                      echo "No CHANGELOG.md section found for $VERSION." > release_notes.md
+                  fi
+            - uses: softprops/action-gh-release@v3
+              with:
+                  tag_name: ${{ needs.version.outputs.version }}
+                  body_path: release_notes.md
+                  files: dist/*
+                  fail_on_unmatched_files: true
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

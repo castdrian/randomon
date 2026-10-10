@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Randomon
+Comment=Randomize Pokémon games
+Exec=randomon
+Icon=randomon
+Categories=Game;Utility;
+Terminal=false
