@@ -1,0 +1,14 @@
+[package]
+name = "randomon_formats"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+crc32fast.workspace = true
+
+[lints]
+workspace = true
