@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+randomon_java.workspace = true
+randomon_settings.workspace = true
 
 [lints]
 workspace = true
