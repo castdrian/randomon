@@ -8,6 +8,7 @@ use iced::{Alignment, Element, Fill, Length, Subscription, Task, Theme, event, w
 
 use crate::rom::{self, LoadedRom};
 use crate::section::Section;
+use crate::settings_files::{self, LoadedPreset, LoadedSettings};
 use crate::support;
 use crate::ui::{style, theme};
 
@@ -51,6 +52,12 @@ enum Message {
     GameUpdatePicked(Option<PathBuf>),
     SettingsStringChanged(String),
     CopySettingsString,
+    LoadQuickSettings,
+    QuickSettingsLoaded(Option<Result<LoadedSettings, String>>),
+    SaveQuickSettings,
+    QuickSettingsSaved(Option<Result<PathBuf, String>>),
+    LoadPreset,
+    PresetLoaded(Option<Result<LoadedPreset, String>>),
     SeedChanged(String),
     RollSeed,
     Randomize,
@@ -92,7 +99,55 @@ impl Randomon {
                 return Task::perform(pick_game_update(), Message::GameUpdatePicked);
             }
             Message::GameUpdatePicked(Some(path)) => self.game_update = Some(path),
-            Message::SettingsStringChanged(value) => self.settings_string = value,
+            Message::SettingsStringChanged(value) => {
+                self.status = if value.trim().is_empty() {
+                    None
+                } else {
+                    Some(match settings_files::describe_settings_string(&value) {
+                        Ok(description) => Status::Info(description),
+                        Err(error) => {
+                            Status::Error(format!("That settings string isn't valid: {error}"))
+                        }
+                    })
+                };
+                self.settings_string = value;
+            }
+            Message::LoadQuickSettings => {
+                return Task::perform(
+                    settings_files::load_quick_settings(),
+                    Message::QuickSettingsLoaded,
+                );
+            }
+            Message::QuickSettingsLoaded(None)
+            | Message::QuickSettingsSaved(None)
+            | Message::PresetLoaded(None) => {}
+            Message::QuickSettingsLoaded(Some(Ok(loaded))) => {
+                self.settings_string = loaded.settings_string;
+                self.status = Some(Status::Info(loaded.description));
+            }
+            Message::SaveQuickSettings => {
+                return Task::perform(
+                    settings_files::save_quick_settings(self.settings_string.clone()),
+                    Message::QuickSettingsSaved,
+                );
+            }
+            Message::QuickSettingsSaved(Some(Ok(path))) => {
+                self.status = Some(Status::Info(format!("Saved {}", path.display())));
+            }
+            Message::LoadPreset => {
+                return Task::perform(settings_files::load_preset(), Message::PresetLoaded);
+            }
+            Message::PresetLoaded(Some(Ok(preset))) => {
+                self.settings_string = preset.settings_string;
+                self.seed = preset.seed.to_string();
+                self.status = Some(Status::Info(format!(
+                    "Preset loaded. It needs {}.",
+                    preset.rom_name
+                )));
+            }
+            Message::QuickSettingsLoaded(Some(Err(error)))
+            | Message::QuickSettingsSaved(Some(Err(error)))
+            | Message::PresetLoaded(Some(Err(error))) => self.status = Some(Status::Error(error)),
             Message::CopySettingsString => {
                 return iced::clipboard::write(self.settings_string.clone());
             }
@@ -311,6 +366,12 @@ impl Randomon {
                 .padding([10, 14])
                 .style(style::secondary_button)
                 .on_press(Message::CopySettingsString),
+            secondary_action("Load", Some(Message::LoadQuickSettings)),
+            secondary_action(
+                "Save",
+                (!self.settings_string.trim().is_empty()).then_some(Message::SaveQuickSettings),
+            ),
+            secondary_action("Preset", Some(Message::LoadPreset)),
         ]
         .spacing(8)
         .align_y(Alignment::Center);
@@ -363,6 +424,14 @@ fn window_settings() -> window::Settings {
             .ok(),
         ..window::Settings::default()
     }
+}
+
+fn secondary_action(label: &'static str, message: Option<Message>) -> Element<'static, Message> {
+    button(text(label))
+        .padding([10, 14])
+        .style(style::secondary_button)
+        .on_press_maybe(message)
+        .into()
 }
 
 fn link_button(label: &'static str, url: &'static str) -> Element<'static, Message> {

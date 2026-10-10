@@ -3,6 +3,7 @@
 mod app;
 mod rom;
 mod section;
+mod settings_files;
 mod support;
 mod ui;
 
