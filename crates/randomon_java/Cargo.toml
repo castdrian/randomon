@@ -1,0 +1,16 @@
+[package]
+name = "randomon_java"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+getrandom = "0.3"
+
+[dev-dependencies]
+serde_json = "1"
+
+[lints]
+workspace = true
