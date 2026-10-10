@@ -3211,10 +3211,21 @@ dependencies = [
 [[package]]
 name = "randomon_core"
 version = "0.1.0"
+dependencies = [
+ "randomon_data",
+ "randomon_java",
+ "randomon_log",
+ "randomon_settings",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "randomon_data"
 version = "0.1.0"
+dependencies = [
+ "randomon_java",
+ "randomon_settings",
+]
 
 [[package]]
 name = "randomon_formats"
@@ -3222,6 +3233,18 @@ version = "0.1.0"
 dependencies = [
  "crc32fast",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "randomon_gen1"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "randomon_core",
+ "randomon_data",
+ "randomon_java",
+ "randomon_log",
+ "randomon_settings",
 ]
 
 [[package]]
@@ -3235,6 +3258,9 @@ dependencies = [
 [[package]]
 name = "randomon_log"
 version = "0.1.0"
+dependencies = [
+ "randomon_java",
+]
 
 [[package]]
 name = "randomon_settings"
