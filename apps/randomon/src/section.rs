@@ -22,6 +22,24 @@ impl Section {
         Section::MiscTweaks,
     ];
 
+    pub fn slug(self) -> &'static str {
+        match self {
+            Section::PokemonTraits => "pokemon",
+            Section::StartersStaticsTrades => "starters",
+            Section::MovesAndMovesets => "moves",
+            Section::FoePokemon => "foes",
+            Section::WildPokemon => "wild",
+            Section::TmsAndTutors => "tms",
+            Section::Items => "items",
+            Section::MiscTweaks => "misc",
+        }
+    }
+
+    pub fn from_slug(slug: &str) -> Option<Self> {
+        let slug = slug.trim().to_ascii_lowercase();
+        Self::ALL.into_iter().find(|section| section.slug() == slug)
+    }
+
     pub fn title(self) -> &'static str {
         match self {
             Section::PokemonTraits => "Pokémon Traits",
