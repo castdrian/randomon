@@ -8,6 +8,7 @@ pub struct LoadedRom {
     pub file_name: String,
     pub platform: Platform,
     pub size_bytes: u64,
+    pub rom_name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,12 +57,20 @@ pub fn inspect(path: PathBuf) -> Result<LoadedRom, String> {
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
+    let rom_name = provisional_rom_name(&path);
     Ok(LoadedRom {
         path,
         file_name,
         platform,
         size_bytes,
+        rom_name,
     })
+}
+
+fn provisional_rom_name(path: &Path) -> String {
+    path.file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 pub fn human_size(bytes: u64) -> String {
