@@ -4,6 +4,7 @@ mod app;
 mod bundle;
 mod capabilities;
 mod debug;
+mod engine;
 mod options;
 mod rom;
 mod section;

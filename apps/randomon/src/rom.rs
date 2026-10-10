@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use crate::engine::{self, EngineGame};
+
 pub const SUPPORTED_EXTENSIONS: &[&str] = &["gb", "gbc", "gba", "nds", "3ds", "cci", "cxi"];
 
 #[derive(Debug, Clone)]
@@ -9,6 +11,7 @@ pub struct LoadedRom {
     pub platform: Platform,
     pub size_bytes: u64,
     pub rom_name: String,
+    pub engine: Option<EngineGame>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,13 +60,18 @@ pub fn inspect(path: PathBuf) -> Result<LoadedRom, String> {
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let rom_name = provisional_rom_name(&path);
+    let engine = engine::inspect(&path, size_bytes);
+    let rom_name = engine
+        .as_ref()
+        .map(|game| game.rom_name.clone())
+        .unwrap_or_else(|| provisional_rom_name(&path));
     Ok(LoadedRom {
         path,
         file_name,
         platform,
         size_bytes,
         rom_name,
+        engine,
     })
 }
 
