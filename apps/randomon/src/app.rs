@@ -1,18 +1,29 @@
+mod view;
+
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use iced::theme::Mode;
-use iced::widget::{
-    Column, button, center, column, container, row, scrollable, space, text, text_input,
-};
-use iced::{Alignment, Element, Fill, Length, Subscription, Task, Theme, event, window};
+use iced::widget::operation::{self, RelativeOffset};
+use iced::{Subscription, Task, Theme, event, window};
+use randomon_settings::{CustomNames, Settings};
 
+use crate::capabilities::Capabilities;
+use crate::debug::DebugBoot;
+use crate::options::spec::Action;
+use crate::options::{self, effective, rules};
 use crate::rom::{self, LoadedRom};
 use crate::section::Section;
-use crate::settings_files::{self, LoadedPreset, LoadedSettings};
+use crate::settings_files::{self, LoadedPreset, ParsedSettings};
 use crate::support;
-use crate::ui::{style, theme};
+use crate::ui::choices::{self, StarterChoice};
+use crate::ui::dialogs::{Dialog, DialogMessage, GenerationLimitDraft, NamesTab};
+use crate::ui::options_view::OptionMessage;
+use crate::ui::theme;
 
 const SEED_SPACE: u64 = 1 << 48;
+const OPTIONS_SCROLL_ID: &str = "options-scroll";
+const INITIAL_WINDOW_WIDTH: f32 = 1240.0;
 
 pub fn run() -> iced::Result {
     iced::application(Randomon::boot, Randomon::update, Randomon::view)
@@ -24,14 +35,22 @@ pub fn run() -> iced::Result {
         .run()
 }
 
-#[derive(Default)]
 struct Randomon {
     mode: Mode,
-    section: Option<Section>,
+    window_width: f32,
+    section: Section,
     rom: Option<LoadedRom>,
     game_update: Option<PathBuf>,
+    settings: Settings,
+    caps: Capabilities,
+    generation_override: Option<i32>,
+    starters: Vec<StarterChoice>,
     settings_string: String,
     seed: String,
+    search: String,
+    disclosures: HashSet<&'static str>,
+    dialog: Option<Dialog>,
+    custom_names: CustomNames,
     status: Option<Status>,
 }
 
@@ -44,7 +63,14 @@ enum Status {
 #[derive(Debug, Clone)]
 enum Message {
     SystemThemeChanged(Mode),
+    WindowResized(f32),
     SectionSelected(Section),
+    SearchChanged(String),
+    ClearSearch,
+    ResetSection,
+    Option(OptionMessage),
+    Dialog(DialogMessage),
+    OpenCustomNames,
     OpenRom,
     RomPicked(Option<PathBuf>),
     FileDropped(PathBuf),
@@ -53,7 +79,7 @@ enum Message {
     SettingsStringChanged(String),
     CopySettingsString,
     LoadQuickSettings,
-    QuickSettingsLoaded(Option<Result<LoadedSettings, String>>),
+    QuickSettingsLoaded(Option<Result<ParsedSettings, String>>),
     SaveQuickSettings,
     QuickSettingsSaved(Option<Result<PathBuf, String>>),
     LoadPreset,
@@ -65,16 +91,58 @@ enum Message {
 }
 
 impl Randomon {
-    fn boot() -> (Self, Task<Message>) {
-        let state = Self {
-            section: Some(Section::PokemonTraits),
+    fn new() -> Self {
+        let caps = Capabilities::preview();
+        let mut state = Self {
+            mode: Mode::None,
+            window_width: INITIAL_WINDOW_WIDTH,
+            section: Section::PokemonTraits,
+            rom: None,
+            game_update: None,
+            settings: Settings::default(),
+            caps,
+            generation_override: None,
+            starters: choices::starter_choices(&caps),
+            settings_string: String::new(),
             seed: random_seed().to_string(),
-            ..Self::default()
+            search: String::new(),
+            disclosures: HashSet::new(),
+            dialog: None,
+            custom_names: CustomNames::default_names(),
+            status: None,
         };
+        state.settings_changed();
+        state
+    }
+
+    fn boot() -> (Self, Task<Message>) {
+        let mut state = Self::new();
+        state.apply_debug_boot(DebugBoot::from_env());
         (
             state,
             iced::system::theme().map(Message::SystemThemeChanged),
         )
+    }
+
+    fn apply_debug_boot(&mut self, boot: DebugBoot) {
+        self.generation_override = boot.generation;
+        if let Some(path) = boot.rom {
+            self.load_rom(path);
+        }
+        if let Some(section) = boot.section {
+            self.section = section;
+        }
+        if let Some(query) = boot.search {
+            self.search = query;
+        }
+        self.dialog = match boot.dialog.as_deref() {
+            Some("generations") => Some(Dialog::GenerationLimits(GenerationLimitDraft::open(
+                self.settings.current_restrictions,
+                &self.caps,
+            ))),
+            Some("names") => Some(Dialog::CustomNames(NamesTab::TrainerNames)),
+            _ => None,
+        };
     }
 
     fn theme(&self) -> Theme {
@@ -85,13 +153,37 @@ impl Randomon {
         Subscription::batch([
             iced::system::theme_changes().map(Message::SystemThemeChanged),
             event::listen_with(file_drop_message),
+            window::resize_events().map(|(_, size)| Message::WindowResized(size.width)),
         ])
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::SystemThemeChanged(mode) => self.mode = mode,
-            Message::SectionSelected(section) => self.section = Some(section),
+            Message::WindowResized(width) => self.window_width = width,
+            Message::SectionSelected(section) => {
+                self.section = section;
+                self.search.clear();
+                return operation::snap_to(OPTIONS_SCROLL_ID, RelativeOffset::START);
+            }
+            Message::SearchChanged(query) => {
+                self.search = query;
+                return operation::snap_to(OPTIONS_SCROLL_ID, RelativeOffset::START);
+            }
+            Message::ClearSearch => self.search.clear(),
+            Message::ResetSection => {
+                options::reset_section(&mut self.settings, self.section);
+                self.settings_changed();
+                self.status = Some(Status::Info(format!(
+                    "{} reset to defaults",
+                    self.section.title()
+                )));
+            }
+            Message::Option(message) => self.handle_option(message),
+            Message::Dialog(message) => self.handle_dialog(message),
+            Message::OpenCustomNames => {
+                self.dialog = Some(Dialog::CustomNames(NamesTab::TrainerNames));
+            }
             Message::OpenRom => return Task::perform(pick_rom(), Message::RomPicked),
             Message::RomPicked(Some(path)) | Message::FileDropped(path) => self.load_rom(path),
             Message::RomPicked(None) | Message::GameUpdatePicked(None) => {}
@@ -99,19 +191,7 @@ impl Randomon {
                 return Task::perform(pick_game_update(), Message::GameUpdatePicked);
             }
             Message::GameUpdatePicked(Some(path)) => self.game_update = Some(path),
-            Message::SettingsStringChanged(value) => {
-                self.status = if value.trim().is_empty() {
-                    None
-                } else {
-                    Some(match settings_files::describe_settings_string(&value) {
-                        Ok(description) => Status::Info(description),
-                        Err(error) => {
-                            Status::Error(format!("That settings string isn't valid: {error}"))
-                        }
-                    })
-                };
-                self.settings_string = value;
-            }
+            Message::SettingsStringChanged(value) => self.paste_settings_string(value),
             Message::LoadQuickSettings => {
                 return Task::perform(
                     settings_files::load_quick_settings(),
@@ -121,13 +201,12 @@ impl Randomon {
             Message::QuickSettingsLoaded(None)
             | Message::QuickSettingsSaved(None)
             | Message::PresetLoaded(None) => {}
-            Message::QuickSettingsLoaded(Some(Ok(loaded))) => {
-                self.settings_string = loaded.settings_string;
-                self.status = Some(Status::Info(loaded.description));
+            Message::QuickSettingsLoaded(Some(Ok(parsed))) => {
+                self.apply_settings(parsed.settings, parsed.description);
             }
             Message::SaveQuickSettings => {
                 return Task::perform(
-                    settings_files::save_quick_settings(self.settings_string.clone()),
+                    settings_files::save_quick_settings(self.output_settings()),
                     Message::QuickSettingsSaved,
                 );
             }
@@ -138,12 +217,9 @@ impl Randomon {
                 return Task::perform(settings_files::load_preset(), Message::PresetLoaded);
             }
             Message::PresetLoaded(Some(Ok(preset))) => {
-                self.settings_string = preset.settings_string;
                 self.seed = preset.seed.to_string();
-                self.status = Some(Status::Info(format!(
-                    "Preset loaded. It needs {}.",
-                    preset.rom_name
-                )));
+                let description = format!("Preset loaded. It needs {}.", preset.rom_name);
+                self.apply_settings(preset.settings, description);
             }
             Message::QuickSettingsLoaded(Some(Err(error)))
             | Message::QuickSettingsSaved(Some(Err(error)))
@@ -171,275 +247,144 @@ impl Randomon {
         Task::none()
     }
 
+    fn handle_option(&mut self, message: OptionMessage) {
+        match message {
+            OptionMessage::Edit(edit) => {
+                edit.apply(&mut self.settings);
+                self.settings_changed();
+            }
+            OptionMessage::Action(Action::EditGenerationLimits) => {
+                self.dialog = Some(Dialog::GenerationLimits(GenerationLimitDraft::open(
+                    self.settings.current_restrictions,
+                    &self.caps,
+                )));
+            }
+            OptionMessage::ToggleDisclosure(card) => {
+                if !self.disclosures.remove(card) {
+                    self.disclosures.insert(card);
+                }
+            }
+            OptionMessage::Ignore => {}
+        }
+    }
+
+    fn handle_dialog(&mut self, message: DialogMessage) {
+        match (message, &mut self.dialog) {
+            (
+                DialogMessage::SetGeneration(generation, allowed),
+                Some(Dialog::GenerationLimits(draft)),
+            ) => {
+                draft.set_generation(generation, allowed);
+            }
+            (DialogMessage::SetRelatives(allowed), Some(Dialog::GenerationLimits(draft))) => {
+                draft.set_relatives(allowed);
+            }
+            (DialogMessage::ConfirmGenerationLimits, Some(Dialog::GenerationLimits(draft))) => {
+                self.settings.current_restrictions = Some(draft.restrictions);
+                if !rules::restrictions_allow_mega_swaps(&self.settings, &self.caps, true) {
+                    self.settings.swap_trainer_mega_evos = false;
+                }
+                self.dialog = None;
+                self.settings_changed();
+            }
+            (DialogMessage::ShowNames(tab), Some(Dialog::CustomNames(current))) => *current = tab,
+            (DialogMessage::Close, _) => self.dialog = None,
+            _ => {}
+        }
+    }
+
     fn load_rom(&mut self, path: PathBuf) {
         match rom::inspect(path) {
             Ok(loaded) => {
                 self.status = Some(Status::Info(format!("Loaded {}", loaded.file_name)));
                 self.game_update = None;
+                self.caps = match self.generation_override {
+                    Some(generation) => Capabilities::for_generation(generation),
+                    None => Capabilities::provisional(loaded.platform),
+                };
+                self.starters = choices::starter_choices(&self.caps);
                 self.rom = Some(loaded);
+                self.limit_restrictions_to_game();
+                self.settings_changed();
             }
             Err(message) => self.status = Some(Status::Error(message)),
         }
     }
 
-    fn view(&self) -> Element<'_, Message> {
-        let content = column![self.rom_card(), self.section_body(), self.action_bar()]
-            .spacing(0)
-            .width(Fill)
-            .height(Fill);
-        row![self.sidebar(), content].height(Fill).into()
-    }
-
-    fn sidebar(&self) -> Element<'_, Message> {
-        let brand = column![
-            text("Randomon").size(22),
-            text(format!("v{}", env!("CARGO_PKG_VERSION"))).size(12),
-        ]
-        .spacing(2);
-
-        let navigation = Section::ALL
-            .iter()
-            .fold(Column::new().spacing(4), |list, &section| {
-                let selected = self.section == Some(section);
-                list.push(
-                    button(
-                        row![
-                            container(text(section.glyph()).size(13))
-                                .width(18)
-                                .center_x(18),
-                            text(section.title()).size(14)
-                        ]
-                        .spacing(10)
-                        .align_y(Alignment::Center),
-                    )
-                    .width(Fill)
-                    .padding([8, 12])
-                    .style(style::nav_item(selected))
-                    .on_press(Message::SectionSelected(section)),
-                )
-            });
-
-        let support_links = column![
-            text("Enjoying Randomon?").size(12),
-            button(text("♥  Sponsor on GitHub").size(13))
-                .width(Fill)
-                .padding([8, 12])
-                .style(style::support_button)
-                .on_press(Message::OpenLink(support::GITHUB_SPONSORS_URL)),
-            button(text("☕  Support on Ko-fi").size(13))
-                .width(Fill)
-                .padding([8, 12])
-                .style(style::support_button)
-                .on_press(Message::OpenLink(support::KO_FI_URL)),
-            row![
-                link_button("Discord", support::DISCORD_URL),
-                link_button("GitHub", support::REPOSITORY_URL),
-                link_button("UPR ZX", support::UPSTREAM_URL),
-            ]
-            .spacing(4),
-        ]
-        .spacing(8);
-
-        container(
-            column![brand, navigation, space::vertical(), support_links]
-                .spacing(24)
-                .height(Fill),
-        )
-        .width(260)
-        .height(Fill)
-        .padding(20)
-        .style(style::sidebar)
-        .into()
-    }
-
-    fn rom_card(&self) -> Element<'_, Message> {
-        let details: Element<'_, Message> = match &self.rom {
-            Some(loaded) => column![
-                text(&loaded.file_name).size(18),
-                row![
-                    container(text(loaded.platform.label()).size(12))
-                        .padding([3, 10])
-                        .style(style::pill),
-                    text(rom::human_size(loaded.size_bytes)).size(12),
-                ]
-                .spacing(10)
-                .align_y(Alignment::Center),
-                text(loaded.path.display().to_string()).size(11),
-            ]
-            .spacing(6)
-            .into(),
-            None => column![
-                text("No ROM loaded").size(18),
-                text("Open a ROM or drop one anywhere in the window.").size(13),
-            ]
-            .spacing(6)
-            .into(),
-        };
-
-        let mut actions = row![
-            button(text("Open ROM"))
-                .padding([8, 16])
-                .style(style::primary_button)
-                .on_press(Message::OpenRom)
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center);
-        if self
-            .rom
-            .as_ref()
-            .is_some_and(|loaded| loaded.platform.supports_game_updates())
-        {
-            let label = match &self.game_update {
-                Some(_) => "Update loaded",
-                None => "Load update (.cia)",
-            };
-            actions = actions.push(
-                button(text(label))
-                    .padding([8, 16])
-                    .style(style::secondary_button)
-                    .on_press(Message::OpenGameUpdate),
-            );
+    fn paste_settings_string(&mut self, value: String) {
+        if value.trim().is_empty() {
+            self.settings_string = value;
+            self.status = None;
+            return;
         }
-
-        container(
-            container(row![details, space::horizontal(), actions].align_y(Alignment::Center))
-                .padding(20)
-                .width(Fill)
-                .style(style::card),
-        )
-        .padding([20, 24])
-        .into()
+        match settings_files::parse_settings_string(&value) {
+            Ok(parsed) => {
+                self.settings_string = value;
+                self.apply_settings(parsed.settings, parsed.description);
+            }
+            Err(error) => {
+                self.settings_string = value;
+                self.status = Some(Status::Error(format!(
+                    "That settings string isn't valid: {error}"
+                )));
+            }
+        }
     }
 
-    fn section_body(&self) -> Element<'_, Message> {
-        let section = self.section.unwrap_or(Section::PokemonTraits);
-        let heading = column![
-            text(section.title()).size(26),
-            text(section.subtitle()).size(14)
-        ]
-        .spacing(4);
-
-        let placeholder: Element<'_, Message> = if self.rom.is_some() {
-            container(
-                column![
-                    text("Options coming soon").size(16),
-                    text("The settings for this section appear here as each generation's engine is ported.")
-                        .size(13),
-                ]
-                .spacing(6),
-            )
-            .padding(20)
-            .width(Fill)
-            .style(style::card)
-            .into()
-        } else {
-            container(center(
-                column![
-                    text("Drop a ROM to begin").size(18),
-                    text("GB, GBC, GBA, NDS and 3DS games are supported").size(13),
-                    button(text("Choose a file"))
-                        .padding([8, 16])
-                        .style(style::primary_button)
-                        .on_press(Message::OpenRom),
-                ]
-                .spacing(10)
-                .align_x(Alignment::Center),
-            ))
-            .height(220)
-            .width(Fill)
-            .style(style::drop_zone)
-            .into()
+    fn apply_settings(&mut self, settings: Settings, description: String) {
+        let mismatch = match (&self.rom, settings.rom_name.as_deref()) {
+            (Some(loaded), Some(name)) if name != loaded.rom_name => Some(name.to_owned()),
+            _ => None,
         };
-
-        scrollable(column![heading, placeholder].spacing(20).padding([4, 24]))
-            .height(Fill)
-            .into()
-    }
-
-    fn action_bar(&self) -> Element<'_, Message> {
-        let settings = row![
-            text_input("Paste a settings string", &self.settings_string)
-                .on_input(Message::SettingsStringChanged)
-                .padding(10)
-                .width(Length::FillPortion(3)),
-            button(text("Copy"))
-                .padding([10, 14])
-                .style(style::secondary_button)
-                .on_press(Message::CopySettingsString),
-            secondary_action("Load", Some(Message::LoadQuickSettings)),
-            secondary_action(
-                "Save",
-                (!self.settings_string.trim().is_empty()).then_some(Message::SaveQuickSettings),
+        self.settings = settings;
+        self.limit_restrictions_to_game();
+        self.settings_changed();
+        self.status = Some(Status::Info(match mismatch {
+            Some(name) => format!(
+                "{description}. They were made for {name}, so some options may not apply to this game."
             ),
-            secondary_action("Preset", Some(Message::LoadPreset)),
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center);
+            None => description,
+        }));
+    }
 
-        let seed = row![
-            text_input("Seed", &self.seed)
-                .on_input(Message::SeedChanged)
-                .padding(10)
-                .width(Length::Fixed(200.0)),
-            button(text("🎲"))
-                .padding([10, 14])
-                .style(style::secondary_button)
-                .on_press(Message::RollSeed),
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center);
+    fn limit_restrictions_to_game(&mut self) {
+        if let (Some(restrictions), Some(generation)) = (
+            self.settings.current_restrictions.as_mut(),
+            self.caps.generation,
+        ) {
+            restrictions.limit_to_gen(generation);
+        }
+    }
 
-        let randomize = button(text("Randomize").size(16))
-            .padding([10, 28])
-            .style(style::primary_button)
-            .on_press_maybe(self.rom.as_ref().map(|_| Message::Randomize));
+    fn settings_changed(&mut self) {
+        rules::normalize(&mut self.settings, &self.caps);
+        match self.output_settings().to_versioned_settings_string() {
+            Ok(text) => self.settings_string = text,
+            Err(error) => log::debug!("settings string unavailable: {error}"),
+        }
+    }
 
-        let status: Element<'_, Message> = match &self.status {
-            Some(Status::Info(message)) => text(message).size(12).into(),
-            Some(Status::Error(message)) => text(message).size(12).style(text::danger).into(),
-            None => space().into(),
-        };
-
-        container(
-            column![
-                row![settings, seed, randomize]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
-                status,
-            ]
-            .spacing(8),
+    fn output_settings(&self) -> Settings {
+        effective::settings_for_output(
+            &self.settings,
+            &self.caps,
+            self.rom.as_ref().map(|loaded| loaded.rom_name.as_str()),
         )
-        .padding([16, 24])
-        .width(Fill)
-        .style(style::action_bar)
-        .into()
+    }
+
+    fn can_save_settings(&self) -> bool {
+        self.output_settings().rom_name.is_some()
     }
 }
 
 fn window_settings() -> window::Settings {
     window::Settings {
-        size: iced::Size::new(1180.0, 760.0),
+        size: iced::Size::new(INITIAL_WINDOW_WIDTH, 820.0),
         min_size: Some(iced::Size::new(900.0, 600.0)),
         icon: window::icon::from_file_data(include_bytes!("../../../assets/icon-512.png"), None)
             .ok(),
         ..window::Settings::default()
     }
-}
-
-fn secondary_action(label: &'static str, message: Option<Message>) -> Element<'static, Message> {
-    button(text(label))
-        .padding([10, 14])
-        .style(style::secondary_button)
-        .on_press_maybe(message)
-        .into()
-}
-
-fn link_button(label: &'static str, url: &'static str) -> Element<'static, Message> {
-    button(text(label).size(12))
-        .padding([4, 8])
-        .style(button::text)
-        .on_press(Message::OpenLink(url))
-        .into()
 }
 
 fn file_drop_message(
@@ -477,4 +422,118 @@ fn random_seed() -> u64 {
         return 0;
     }
     u64::from_le_bytes(bytes) % SEED_SPACE
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::options::Edit;
+    use randomon_settings::{BaseStatisticsMod, MiscTweak, WildPokemonMod};
+
+    fn app_with_rom(extension: &str) -> Randomon {
+        let directory = std::env::temp_dir().join("randomon-app-tests");
+        std::fs::create_dir_all(&directory).expect("temp dir");
+        let path = directory.join(format!("Test Game.{extension}"));
+        std::fs::write(&path, [0u8; 16]).expect("rom file");
+        let mut app = Randomon::new();
+        app.load_rom(path);
+        app
+    }
+
+    fn edit(app: &mut Randomon, edit: Edit) {
+        app.handle_option(OptionMessage::Edit(edit));
+    }
+
+    #[test]
+    fn controls_update_the_settings_string_live() {
+        let mut app = app_with_rom("gba");
+        let before = app.settings_string.clone();
+        assert!(!before.is_empty());
+        edit(
+            &mut app,
+            Edit::Select(|s| s.base_statistics_mod = BaseStatisticsMod::Random),
+        );
+        assert_ne!(app.settings_string, before);
+        let decoded = Settings::from_versioned_settings_string(&app.settings_string)
+            .expect("valid")
+            .settings;
+        assert_eq!(decoded.base_statistics_mod, BaseStatisticsMod::Random);
+        assert_eq!(decoded.rom_name.as_deref(), Some("Test Game"));
+    }
+
+    #[test]
+    fn pasted_strings_replace_the_state_and_round_trip() {
+        let mut source = app_with_rom("nds");
+        edit(
+            &mut source,
+            Edit::Select(|s| s.wild_pokemon_mod = WildPokemonMod::AreaMapping),
+        );
+        edit(
+            &mut source,
+            Edit::Flag(|s, v| s.wild_levels_modified = v, true),
+        );
+        edit(
+            &mut source,
+            Edit::Number(|s, v| s.wild_level_modifier = v, 24),
+        );
+        edit(&mut source, Edit::MiscTweak(MiscTweak::FastestText, true));
+        let text = source.settings_string.clone();
+
+        let mut target = app_with_rom("nds");
+        target.paste_settings_string(text.clone());
+        assert_eq!(
+            target.settings.wild_pokemon_mod,
+            WildPokemonMod::AreaMapping
+        );
+        assert_eq!(target.settings.wild_level_modifier, 24);
+        assert!(MiscTweak::FastestText.is_set_in(target.settings.current_misc_tweaks));
+        assert_eq!(target.settings_string, text);
+    }
+
+    #[test]
+    fn without_a_rom_the_last_valid_string_is_kept() {
+        let mut app = Randomon::new();
+        assert!(app.settings_string.is_empty());
+        edit(&mut app, Edit::Flag(|s, v| s.race_mode = v, true));
+        assert!(app.settings_string.is_empty());
+
+        let mut source = app_with_rom("gbc");
+        edit(&mut source, Edit::Flag(|s, v| s.race_mode = v, true));
+        app.paste_settings_string(source.settings_string.clone());
+        assert_eq!(app.settings_string, source.settings_string);
+        edit(
+            &mut app,
+            Edit::Flag(|s, v| s.randomize_move_powers = v, true),
+        );
+        let decoded = Settings::from_versioned_settings_string(&app.settings_string)
+            .expect("valid")
+            .settings;
+        assert!(decoded.randomize_move_powers);
+        assert!(decoded.race_mode);
+    }
+
+    #[test]
+    fn invalid_pastes_keep_the_previous_settings() {
+        let mut app = app_with_rom("gba");
+        edit(&mut app, Edit::Flag(|s, v| s.race_mode = v, true));
+        app.paste_settings_string("322garbage".to_owned());
+        assert!(app.settings.race_mode);
+        assert!(matches!(app.status, Some(Status::Error(_))));
+        assert_eq!(app.settings_string, "322garbage");
+    }
+
+    #[test]
+    fn hidden_options_never_reach_the_string() {
+        let mut app = app_with_rom("gb");
+        edit(
+            &mut app,
+            Edit::Select(|s| s.trainers_mod = randomon_settings::TrainersMod::Random),
+        );
+        app.settings.double_battle_mode = true;
+        app.settings_changed();
+        let decoded = Settings::from_versioned_settings_string(&app.settings_string)
+            .expect("valid")
+            .settings;
+        assert!(!decoded.double_battle_mode);
+    }
 }
