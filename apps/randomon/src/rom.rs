@@ -1,0 +1,80 @@
+use std::path::{Path, PathBuf};
+
+pub const SUPPORTED_EXTENSIONS: &[&str] = &["gb", "gbc", "gba", "nds", "3ds", "cci", "cxi"];
+
+#[derive(Debug, Clone)]
+pub struct LoadedRom {
+    pub path: PathBuf,
+    pub file_name: String,
+    pub platform: Platform,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Platform {
+    GameBoy,
+    GameBoyColor,
+    GameBoyAdvance,
+    NintendoDs,
+    Nintendo3ds,
+}
+
+impl Platform {
+    pub fn from_path(path: &Path) -> Option<Self> {
+        let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+        match extension.as_str() {
+            "gb" => Some(Self::GameBoy),
+            "gbc" => Some(Self::GameBoyColor),
+            "gba" => Some(Self::GameBoyAdvance),
+            "nds" => Some(Self::NintendoDs),
+            "3ds" | "cci" | "cxi" => Some(Self::Nintendo3ds),
+            _ => None,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::GameBoy => "Game Boy",
+            Self::GameBoyColor => "Game Boy Color",
+            Self::GameBoyAdvance => "Game Boy Advance",
+            Self::NintendoDs => "Nintendo DS",
+            Self::Nintendo3ds => "Nintendo 3DS",
+        }
+    }
+
+    pub fn supports_game_updates(self) -> bool {
+        self == Self::Nintendo3ds
+    }
+}
+
+pub fn inspect(path: PathBuf) -> Result<LoadedRom, String> {
+    let platform = Platform::from_path(&path).ok_or("This file type isn't a supported ROM.")?;
+    let size_bytes = std::fs::metadata(&path)
+        .map_err(|error| format!("Couldn't read the file: {error}"))?
+        .len();
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    Ok(LoadedRom {
+        path,
+        file_name,
+        platform,
+        size_bytes,
+    })
+}
+
+pub fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
+}

@@ -1,0 +1,12 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod app;
+mod rom;
+mod section;
+mod support;
+mod ui;
+
+fn main() -> iced::Result {
+    env_logger::init();
+    app::run()
+}
