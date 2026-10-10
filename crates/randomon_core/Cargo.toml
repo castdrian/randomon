@@ -7,6 +7,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+randomon_java.workspace = true
+randomon_data.workspace = true
+randomon_settings.workspace = true
+randomon_log.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true
