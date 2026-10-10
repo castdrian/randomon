@@ -3196,6 +3196,7 @@ dependencies = [
  "iced",
  "log",
  "open",
+ "randomon_settings",
  "rfd",
  "winresource",
 ]
