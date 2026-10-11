@@ -14,16 +14,12 @@ use randomon_settings::{MiscTweak, Settings};
 
 use crate::handler::Gen5RomHandler;
 
-fn expect_rom<T>(result: Result<T>) -> T {
-    result.unwrap_or_else(|error| panic!("{error}"))
-}
-
 fn array_list(handler: &Gen5RomHandler, key: &str) -> Vec<i32> {
     handler
         .entry
         .array(key)
-        .unwrap_or_else(|| panic!("java.lang.NullPointerException: arrayEntries.get({key})"))
-        .to_vec()
+        .map(<[i32]>::to_vec)
+        .unwrap_or_default()
 }
 
 impl RomHandler for Gen5RomHandler {
@@ -62,9 +58,12 @@ impl RomHandler for Gen5RomHandler {
     fn get_alt_formes(&self) -> Vec<PokemonId> {
         let start = gen5::POKEMON_COUNT as usize + 1;
         let end = start + self.forme_count() as usize;
-        self.pokemon_list_incl_formes[start..end]
+        self.pokemon_list_incl_formes
+            .get(start..end)
+            .unwrap_or_default()
             .iter()
-            .map(|pokemon| pokemon.expect("alt formes are loaded"))
+            .flatten()
+            .copied()
             .collect()
     }
 
@@ -84,7 +83,8 @@ impl RomHandler for Gen5RomHandler {
     }
 
     fn remove_evos_for_pokemon_pool(&mut self) {
-        expect_rom(self.remove_evos_for_pokemon_pool_impl());
+        let outcome = self.remove_evos_for_pokemon_pool_impl();
+        self.core.deferred.settle(outcome);
     }
 
     fn get_starters(&self) -> Vec<PokemonId> {
@@ -129,7 +129,7 @@ impl RomHandler for Gen5RomHandler {
         self.ability_names
             .get(number as usize)
             .cloned()
-            .unwrap_or_else(|| panic!("java.lang.IndexOutOfBoundsException: abilityNames {number}"))
+            .unwrap_or_default()
     }
 
     fn get_ability_variations(&self) -> BTreeMap<i32, Vec<i32>> {
@@ -149,7 +149,7 @@ impl RomHandler for Gen5RomHandler {
     }
 
     fn get_encounters(&self, use_time_of_day: bool) -> Vec<EncounterSet> {
-        expect_rom(self.encounters(use_time_of_day))
+        self.core.deferred.settle(self.encounters(use_time_of_day))
     }
 
     fn set_encounters(&mut self, use_time_of_day: bool, encounters: &[EncounterSet]) -> Result<()> {
@@ -165,7 +165,8 @@ impl RomHandler for Gen5RomHandler {
     }
 
     fn enable_guaranteed_pokemon_catching(&mut self) {
-        expect_rom(self.enable_guaranteed_catching());
+        let outcome = self.enable_guaranteed_catching();
+        self.core.deferred.settle(outcome);
     }
 
     fn get_trainers(&self) -> Result<Vec<Trainer>> {
@@ -214,7 +215,7 @@ impl RomHandler for Gen5RomHandler {
     }
 
     fn get_moves_learnt(&self) -> Movesets {
-        expect_rom(self.moves_learnt())
+        self.core.deferred.settle(self.moves_learnt())
     }
 
     fn set_moves_learnt(&mut self, movesets: &Movesets) -> Result<()> {
@@ -222,7 +223,7 @@ impl RomHandler for Gen5RomHandler {
     }
 
     fn get_egg_moves(&self) -> EggMoves {
-        expect_rom(self.egg_moves())
+        self.core.deferred.settle(self.egg_moves())
     }
 
     fn set_egg_moves(&mut self, egg_moves: &EggMoves) -> Result<()> {
@@ -234,7 +235,7 @@ impl RomHandler for Gen5RomHandler {
     }
 
     fn get_static_pokemon(&self) -> Vec<StaticEncounter> {
-        expect_rom(self.static_pokemon())
+        self.core.deferred.settle(self.static_pokemon())
     }
 
     fn set_static_pokemon(&mut self, statics: &[StaticEncounter]) -> Result<bool> {
@@ -262,7 +263,8 @@ impl RomHandler for Gen5RomHandler {
     }
 
     fn apply_correct_static_music(&mut self, changes: &BTreeMap<i32, i32>) {
-        expect_rom(self.apply_correct_static_music_impl(changes));
+        let outcome = self.apply_correct_static_music_impl(changes);
+        self.core.deferred.settle(outcome);
     }
 
     fn has_static_music_fix(&self) -> bool {
@@ -310,7 +312,7 @@ impl RomHandler for Gen5RomHandler {
     }
 
     fn get_move_tutor_moves(&self) -> Vec<i32> {
-        expect_rom(self.move_tutor_moves())
+        self.core.deferred.settle(self.move_tutor_moves())
     }
 
     fn set_move_tutor_moves(&mut self, moves: &[i32]) -> Result<()> {
@@ -330,11 +332,12 @@ impl RomHandler for Gen5RomHandler {
     }
 
     fn get_trainer_names(&self) -> Vec<String> {
-        expect_rom(self.trainer_names())
+        self.core.deferred.settle(self.trainer_names())
     }
 
     fn set_trainer_names(&mut self, names: &[String]) {
-        expect_rom(self.set_trainer_names_impl(names));
+        let outcome = self.set_trainer_names_impl(names);
+        self.core.deferred.settle(outcome);
     }
 
     fn trainer_name_mode(&self) -> TrainerNameMode {
@@ -350,11 +353,12 @@ impl RomHandler for Gen5RomHandler {
     }
 
     fn get_trainer_class_names(&self) -> Vec<String> {
-        expect_rom(self.trainer_class_names())
+        self.core.deferred.settle(self.trainer_class_names())
     }
 
     fn set_trainer_class_names(&mut self, names: &[String]) {
-        expect_rom(self.set_trainer_class_names_impl(names));
+        let outcome = self.set_trainer_class_names_impl(names);
+        self.core.deferred.settle(outcome);
     }
 
     fn fixed_trainer_class_names_length(&self) -> bool {
@@ -426,7 +430,7 @@ impl RomHandler for Gen5RomHandler {
     }
 
     fn get_shop_items(&self) -> Option<BTreeMap<i32, Shop>> {
-        Some(expect_rom(self.shop_items()))
+        Some(self.core.deferred.settle(self.shop_items()))
     }
 
     fn set_shop_items(&mut self, shops: &BTreeMap<i32, Shop>) -> Result<()> {
@@ -434,19 +438,21 @@ impl RomHandler for Gen5RomHandler {
     }
 
     fn set_shop_prices(&mut self) {
-        expect_rom(self.set_shop_prices_impl());
+        let outcome = self.set_shop_prices_impl();
+        self.core.deferred.settle(outcome);
     }
 
     fn get_pickup_items(&self) -> Vec<PickupItem> {
-        expect_rom(self.pickup_items())
+        self.core.deferred.settle(self.pickup_items())
     }
 
     fn set_pickup_items(&mut self, items: &[PickupItem]) {
-        expect_rom(self.set_pickup_items_impl(items));
+        let outcome = self.set_pickup_items_impl(items);
+        self.core.deferred.settle(outcome);
     }
 
     fn get_ingame_trades(&self) -> Vec<IngameTrade> {
-        expect_rom(self.ingame_trades())
+        self.core.deferred.settle(self.ingame_trades())
     }
 
     fn set_ingame_trades(&mut self, trades: &[IngameTrade]) -> Result<()> {

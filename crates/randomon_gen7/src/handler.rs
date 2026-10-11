@@ -175,11 +175,18 @@ impl Gen7RomHandler {
 
     pub(crate) fn pokemon_with_forme(&self, species: i32, forme: i32) -> PokemonId {
         let pokemon = self.pk(species);
+        if !self.core.data.exists(pokemon) {
+            return pokemon;
+        }
         let cosmetic_forms = self.core.data.pk(pokemon).cosmetic_forms;
         if forme <= cosmetic_forms || forme == 30 || forme == 31 {
-            pokemon
+            return pokemon;
+        }
+        let alternate = self.pk(self.absolute_poke_num(species, forme));
+        if self.core.data.exists(alternate) && alternate.index() != 0 {
+            alternate
         } else {
-            self.pk(self.absolute_poke_num(species, forme))
+            pokemon
         }
     }
 

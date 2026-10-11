@@ -20,13 +20,6 @@ use crate::constants;
 use crate::handler::Gen7RomHandler;
 use crate::held_items;
 
-fn expect<T>(result: Result<T>) -> T {
-    match result {
-        Ok(value) => value,
-        Err(error) => panic!("{error}"),
-    }
-}
-
 impl Gen7RomHandler {
     fn sensible_items(
         &self,
@@ -207,7 +200,7 @@ impl RomHandler for Gen7RomHandler {
     }
 
     fn print_rom_diagnostics(&self, log: &mut LogWriter) {
-        for line in expect(self.rom.borrow().diagnostics()) {
+        for line in self.core.deferred.settle(self.rom.borrow().diagnostics()) {
             log.println(&line);
         }
     }
@@ -248,11 +241,12 @@ impl RomHandler for Gen7RomHandler {
     }
 
     fn remove_evos_for_pokemon_pool(&mut self) {
-        expect(self.remove_evos_for_pool());
+        let outcome = self.remove_evos_for_pool();
+        self.core.deferred.settle(outcome);
     }
 
     fn get_starters(&self) -> Vec<PokemonId> {
-        expect(self.read_starters())
+        self.core.deferred.settle(self.read_starters())
     }
 
     fn set_starters(&mut self, starters: &[PokemonId]) -> Result<bool> {
@@ -273,11 +267,12 @@ impl RomHandler for Gen7RomHandler {
     }
 
     fn get_starter_held_items(&self) -> Vec<i32> {
-        expect(self.read_starter_held_items())
+        self.core.deferred.settle(self.read_starter_held_items())
     }
 
     fn set_starter_held_items(&mut self, items: &[i32]) {
-        expect(self.write_starter_held_items(items));
+        let outcome = self.write_starter_held_items(items);
+        self.core.deferred.settle(outcome);
     }
 
     fn get_updated_pokemon_stats(&self, generation: i32) -> BTreeMap<i32, StatChange> {
@@ -328,7 +323,9 @@ impl RomHandler for Gen7RomHandler {
     }
 
     fn get_encounters(&self, use_time_of_day: bool) -> Vec<EncounterSet> {
-        expect(self.read_encounters(use_time_of_day))
+        self.core
+            .deferred
+            .settle(self.read_encounters(use_time_of_day))
     }
 
     fn set_encounters(&mut self, use_time_of_day: bool, encounters: &[EncounterSet]) -> Result<()> {
@@ -344,7 +341,8 @@ impl RomHandler for Gen7RomHandler {
     }
 
     fn enable_guaranteed_pokemon_catching(&mut self) {
-        expect(self.enable_guaranteed_catching());
+        let outcome = self.enable_guaranteed_catching();
+        self.core.deferred.settle(outcome);
     }
 
     fn get_trainers(&self) -> Result<Vec<Trainer>> {
@@ -389,7 +387,7 @@ impl RomHandler for Gen7RomHandler {
     }
 
     fn get_moves_learnt(&self) -> Movesets {
-        expect(self.read_movesets())
+        self.core.deferred.settle(self.read_movesets())
     }
 
     fn set_moves_learnt(&mut self, movesets: &Movesets) -> Result<()> {
@@ -401,7 +399,7 @@ impl RomHandler for Gen7RomHandler {
     }
 
     fn get_egg_moves(&self) -> EggMoves {
-        expect(self.read_egg_moves())
+        self.core.deferred.settle(self.read_egg_moves())
     }
 
     fn set_egg_moves(&mut self, egg_moves: &EggMoves) -> Result<()> {
@@ -413,7 +411,7 @@ impl RomHandler for Gen7RomHandler {
     }
 
     fn get_static_pokemon(&self) -> Vec<StaticEncounter> {
-        expect(self.read_static_pokemon())
+        self.core.deferred.settle(self.read_static_pokemon())
     }
 
     fn set_static_pokemon(&mut self, statics: &[StaticEncounter]) -> Result<bool> {
@@ -448,7 +446,7 @@ impl RomHandler for Gen7RomHandler {
     }
 
     fn get_totem_pokemon(&self) -> Vec<TotemPokemon> {
-        expect(self.read_totem_pokemon())
+        self.core.deferred.settle(self.read_totem_pokemon())
     }
 
     fn set_totem_pokemon(&mut self, totems: &[TotemPokemon]) -> Result<()> {
@@ -508,16 +506,18 @@ impl RomHandler for Gen7RomHandler {
     }
 
     fn get_trainer_names(&self) -> Vec<String> {
-        expect(self.trainer_name_list())
+        self.core.deferred.settle(self.trainer_name_list())
     }
 
     fn set_trainer_names(&mut self, names: &[String]) {
         let index = self.entry.int("TrainerNamesTextOffset");
-        let current = expect(self.strings(false, index));
+        let current = self.core.deferred.settle(self.strings(false, index));
         let mut new_names = vec![current[0].clone()];
         new_names.extend(names.iter().cloned());
-        expect(self.set_strings(false, index, &new_names));
-        expect(self.write_strings_for_all_languages(&new_names, index));
+        let outcome = self.set_strings(false, index, &new_names);
+        self.core.deferred.settle(outcome);
+        let outcome = self.write_strings_for_all_languages(&new_names, index);
+        self.core.deferred.settle(outcome);
     }
 
     fn trainer_name_mode(&self) -> TrainerNameMode {
@@ -533,13 +533,15 @@ impl RomHandler for Gen7RomHandler {
     }
 
     fn get_trainer_class_names(&self) -> Vec<String> {
-        expect(self.class_names())
+        self.core.deferred.settle(self.class_names())
     }
 
     fn set_trainer_class_names(&mut self, names: &[String]) {
         let index = self.entry.int("TrainerClassesTextOffset");
-        expect(self.set_strings(false, index, names));
-        expect(self.write_strings_for_all_languages(names, index));
+        let outcome = self.set_strings(false, index, names);
+        self.core.deferred.settle(outcome);
+        let outcome = self.write_strings_for_all_languages(names, index);
+        self.core.deferred.settle(outcome);
     }
 
     fn fixed_trainer_class_names_length(&self) -> bool {
@@ -587,7 +589,7 @@ impl RomHandler for Gen7RomHandler {
     }
 
     fn get_current_field_tms(&self) -> Vec<i32> {
-        expect(self.current_field_tms())
+        self.core.deferred.settle(self.current_field_tms())
     }
 
     fn set_field_tms(&mut self, tms: &[i32]) -> Result<()> {
@@ -595,7 +597,7 @@ impl RomHandler for Gen7RomHandler {
     }
 
     fn get_regular_field_items(&self) -> Vec<i32> {
-        expect(self.regular_field_items())
+        self.core.deferred.settle(self.regular_field_items())
     }
 
     fn set_regular_field_items(&mut self, items: &[i32]) -> Result<()> {
@@ -607,7 +609,7 @@ impl RomHandler for Gen7RomHandler {
     }
 
     fn get_shop_items(&self) -> Option<BTreeMap<i32, Shop>> {
-        Some(expect(self.read_shop_items()))
+        Some(self.core.deferred.settle(self.read_shop_items()))
     }
 
     fn set_shop_items(&mut self, shops: &BTreeMap<i32, Shop>) -> Result<()> {
@@ -615,19 +617,21 @@ impl RomHandler for Gen7RomHandler {
     }
 
     fn set_shop_prices(&mut self) {
-        expect(self.write_shop_prices());
+        let outcome = self.write_shop_prices();
+        self.core.deferred.settle(outcome);
     }
 
     fn get_pickup_items(&self) -> Vec<PickupItem> {
-        expect(self.read_pickup_items())
+        self.core.deferred.settle(self.read_pickup_items())
     }
 
     fn set_pickup_items(&mut self, items: &[PickupItem]) {
-        expect(self.write_pickup_items(items));
+        let outcome = self.write_pickup_items(items);
+        self.core.deferred.settle(outcome);
     }
 
     fn get_ingame_trades(&self) -> Vec<IngameTrade> {
-        expect(self.read_ingame_trades())
+        self.core.deferred.settle(self.read_ingame_trades())
     }
 
     fn set_ingame_trades(&mut self, trades: &[IngameTrade]) -> Result<()> {

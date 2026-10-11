@@ -5,8 +5,9 @@ use randomon_settings::{
     AbilitiesMod, AllyPokemonMod, AuraMod, Settings, StaticPokemonMod, TotemPokemonMod,
 };
 
+use crate::engine::choose::{StrengthWindow, first_non_empty, take_refilling};
 use crate::engine::pool::{check_pokemon_restrictions, non_cosmetic};
-use crate::engine::util::{modified_level, pick, random_index, remove_all, remove_first, take};
+use crate::engine::util::{modified_level, pick, random_index, remove_all, remove_first};
 use crate::error::{RandomizationError, Result};
 use crate::handler::RomHandler;
 
@@ -114,20 +115,15 @@ fn restricted_pokemon<H: RomHandler + ?Sized>(
     left: &mut Vec<PokemonId>,
     old: &StaticEncounter,
 ) -> Result<PokemonId> {
-    let mut restricted: Vec<PokemonId> = left
-        .iter()
-        .copied()
-        .filter(|pk| old.restricted_list.contains(pk))
-        .collect();
-    if restricted.is_empty() {
-        restricted = full
-            .iter()
+    let allowed = |list: &[PokemonId]| -> Vec<PokemonId> {
+        list.iter()
             .copied()
             .filter(|pk| old.restricted_list.contains(pk))
-            .collect();
-    }
+            .collect()
+    };
+    let mut restricted = first_non_empty(&[&allowed(left), &allowed(full), left, full]);
     let mut random = handler.core().engine.random.clone();
-    let picked = take(&mut random, &mut restricted)?;
+    let picked = take_refilling(&mut random, &mut restricted, &[]).unwrap_or(old.pkmn);
     remove_first(left, &picked);
     Ok(picked)
 }
@@ -144,11 +140,17 @@ fn mega_evolution_sources<H: RomHandler + ?Sized>(handler: &H) -> Vec<PokemonId>
     sources
 }
 
-fn random_mega_stone<H: RomHandler + ?Sized>(handler: &H, pokemon: PokemonId) -> Result<i32> {
+fn random_mega_stone<H: RomHandler + ?Sized>(
+    handler: &H,
+    pokemon: PokemonId,
+) -> Result<Option<i32>> {
     let data = &handler.core().data;
     let megas = &data.pk(pokemon).mega_evolutions_from;
+    if megas.is_empty() {
+        return Ok(None);
+    }
     let mut random = handler.core().engine.random.clone();
-    Ok(data.mega(pick(&mut random, megas)?).argument)
+    Ok(Some(data.mega(pick(&mut random, megas)?).argument))
 }
 
 fn mega_evo_pokemon<H: RomHandler + ?Sized>(
@@ -158,22 +160,22 @@ fn mega_evo_pokemon<H: RomHandler + ?Sized>(
     encounter: &mut StaticEncounter,
 ) -> Result<PokemonId> {
     let sources = mega_evolution_sources(handler);
-    let mut available: Vec<PokemonId> = sources
-        .iter()
-        .copied()
-        .filter(|pk| left.contains(pk))
-        .collect();
-    if available.is_empty() {
-        available = sources
+    let in_list = |list: &[PokemonId]| -> Vec<PokemonId> {
+        sources
             .iter()
             .copied()
-            .filter(|pk| full.contains(pk))
-            .collect();
-    }
+            .filter(|pk| list.contains(pk))
+            .collect()
+    };
+    let mut available = first_non_empty(&[&in_list(left), &in_list(full)]);
     let mut random = handler.core().engine.random.clone();
-    let picked = take(&mut random, &mut available)?;
+    let Some(picked) = take_refilling(&mut random, &mut available, &[]) else {
+        return Ok(take_refilling(&mut random, left, full).unwrap_or(encounter.pkmn));
+    };
     remove_first(left, &picked);
-    encounter.held_item = random_mega_stone(handler, picked)?;
+    if let Some(stone) = random_mega_stone(handler, picked)? {
+        encounter.held_item = stone;
+    }
     Ok(picked)
 }
 
@@ -186,37 +188,17 @@ fn pick_static_power_lvl_replacement<H: RomHandler + ?Sized>(
 ) -> Result<PokemonId> {
     let data = &handler.core().data;
     let current_bst = data.pk(current).bst_for_power_levels();
-    let mut min_target = if limit_bst {
-        current_bst - current_bst / 5
+    let window = if limit_bst {
+        StrengthWindow::at_most(current_bst, 3, 3)
     } else {
-        current_bst - current_bst / 10
+        StrengthWindow::around(current_bst, 3, 3)
     };
-    let mut max_target = if limit_bst {
-        current_bst
-    } else {
-        current_bst + current_bst / 10
-    };
-    let mut can_pick: Vec<PokemonId> = Vec::new();
-    let mut expand_rounds = 0;
-    while can_pick.is_empty() || (can_pick.len() < 3 && expand_rounds < 3) {
-        if pool.is_empty() && expand_rounds > 10_000 {
-            return Err(RandomizationError::EmptyChoice(
-                std::panic::Location::caller(),
-            ));
-        }
-        for &pokemon in pool {
-            let bst = data.pk(pokemon).bst_for_power_levels();
-            if bst >= min_target
-                && bst <= max_target
-                && (!ban_same || pokemon != current)
-                && !can_pick.contains(&pokemon)
-            {
-                can_pick.push(pokemon);
-            }
-        }
-        min_target -= current_bst / 20;
-        max_target += current_bst / 20;
-        expand_rounds += 1;
+    let mut can_pick = window.candidates(data, pool, |pokemon| !ban_same || pokemon != current);
+    if can_pick.is_empty() {
+        can_pick = window.candidates(data, pool, |_| true);
+    }
+    if can_pick.is_empty() {
+        return Ok(current);
     }
     let mut random = handler.core().engine.random.clone();
     pick(&mut random, &can_pick)
@@ -282,9 +264,13 @@ pub fn randomize_static_pokemon<H: RomHandler + ?Sized>(
         remove_all(&mut legendaries_left, &banned);
         remove_all(&mut nonlegs_left, &banned);
         remove_all(&mut ultra_beasts_left, &banned);
-        let legendaries_pool = legendaries_left.clone();
-        let nonlegs_pool = nonlegs_left.clone();
-        let ultra_beasts_pool = ultra_beasts_left.clone();
+        let everyone = pool.main.clone();
+        let nonlegs_pool = first_non_empty(&[&nonlegs_left, &legendaries_left, &everyone]);
+        let legendaries_pool = first_non_empty(&[&legendaries_left, &nonlegs_pool]);
+        let ultra_beasts_pool = first_non_empty(&[&ultra_beasts_left, &legendaries_pool]);
+        legendaries_left = legendaries_pool.clone();
+        nonlegs_left = nonlegs_pool.clone();
+        ultra_beasts_left = ultra_beasts_pool.clone();
         for old in &current {
             let mut new_static = clone_static_encounter(old);
             let new_pokemon;
@@ -299,7 +285,8 @@ pub fn randomize_static_pokemon<H: RomHandler + ?Sized>(
                 } else if old.restricted_pool {
                     restricted_pokemon(handler, &legendaries_pool, &mut legendaries_left, old)?
                 } else {
-                    take(&mut random, &mut legendaries_left)?
+                    take_refilling(&mut random, &mut legendaries_left, &legendaries_pool)
+                        .unwrap_or(old.pkmn)
                 };
                 set_pokemon_and_forme_for_static_encounter(handler, &mut new_static, new_pokemon)?;
                 if legendaries_left.is_empty() {
@@ -309,7 +296,8 @@ pub fn randomize_static_pokemon<H: RomHandler + ?Sized>(
                 new_pokemon = if old.restricted_pool {
                     restricted_pokemon(handler, &ultra_beasts_pool, &mut ultra_beasts_left, old)?
                 } else {
-                    take(&mut random, &mut ultra_beasts_left)?
+                    take_refilling(&mut random, &mut ultra_beasts_left, &ultra_beasts_pool)
+                        .unwrap_or(old.pkmn)
                 };
                 set_pokemon_and_forme_for_static_encounter(handler, &mut new_static, new_pokemon)?;
                 if ultra_beasts_left.is_empty() {
@@ -326,7 +314,8 @@ pub fn randomize_static_pokemon<H: RomHandler + ?Sized>(
                 } else if old.restricted_pool {
                     restricted_pokemon(handler, &nonlegs_pool, &mut nonlegs_left, old)?
                 } else {
-                    take(&mut random, &mut nonlegs_left)?
+                    take_refilling(&mut random, &mut nonlegs_left, &nonlegs_pool)
+                        .unwrap_or(old.pkmn)
                 };
                 set_pokemon_and_forme_for_static_encounter(handler, &mut new_static, new_pokemon)?;
                 if nonlegs_left.is_empty() {
@@ -365,7 +354,8 @@ pub fn randomize_static_pokemon<H: RomHandler + ?Sized>(
                 } else if old.restricted_pool {
                     restricted_pokemon(handler, &pokemon_pool, &mut pokemon_left, old)?
                 } else {
-                    take(&mut random, &mut pokemon_left)?
+                    take_refilling(&mut random, &mut pokemon_left, &pokemon_pool)
+                        .unwrap_or(old.pkmn)
                 };
                 set_pokemon_and_forme_for_static_encounter(handler, &mut new_static, new_pokemon)?;
             } else {
@@ -396,7 +386,9 @@ pub fn randomize_static_pokemon<H: RomHandler + ?Sized>(
                         true,
                         limit_bst,
                     )?;
-                    new_static.held_item = random_mega_stone(handler, new_pokemon)?;
+                    if let Some(stone) = random_mega_stone(handler, new_pokemon)? {
+                        new_static.held_item = stone;
+                    }
                 } else if old.restricted_pool {
                     let mut restricted: Vec<PokemonId> = pokemon_left
                         .iter()
@@ -454,7 +446,7 @@ pub fn randomize_static_pokemon<H: RomHandler + ?Sized>(
             } else if old.restricted_pool {
                 restricted_pokemon(handler, &pokemon_pool, &mut pokemon_left, old)?
             } else {
-                take(&mut random, &mut pokemon_left)?
+                take_refilling(&mut random, &mut pokemon_left, &pokemon_pool).unwrap_or(old.pkmn)
             };
             remove_first(&mut pokemon_left, &new_pokemon);
             set_pokemon_and_forme_for_static_encounter(handler, &mut new_static, new_pokemon)?;
@@ -568,7 +560,8 @@ pub fn randomize_totem_pokemon<H: RomHandler + ?Sized>(
             let new_pokemon = if similar_totem {
                 pick_static_power_lvl_replacement(handler, &pokemon_left, old_pokemon, true, false)?
             } else {
-                take(&mut random, &mut pokemon_left)?
+                take_refilling(&mut random, &mut pokemon_left, &refill_source)
+                    .unwrap_or(old_pokemon)
             };
             remove_first(&mut pokemon_left, &new_pokemon);
             new_totem.encounter.pkmn = new_pokemon;
@@ -609,7 +602,8 @@ pub fn randomize_totem_pokemon<H: RomHandler + ?Sized>(
                         false,
                     )?
                 } else {
-                    take(&mut random, &mut pokemon_left)?
+                    take_refilling(&mut random, &mut pokemon_left, &refill_source)
+                        .unwrap_or(old_ally_pokemon)
                 };
                 remove_first(&mut pokemon_left, &new_ally_pokemon);
                 let mut new_ally = StaticEncounter::new(new_ally_pokemon);
