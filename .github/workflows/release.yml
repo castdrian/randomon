@@ -172,6 +172,16 @@ jobs:
                   cp assets/icon.icns "$APP/Contents/Resources/icon.icns"
                   sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD_NUMBER/" package/macos/Info.plist > "$APP/Contents/Info.plist"
 
+            - name: Register the bundle ID
+              env:
+                  KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+                  ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+                  PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+                  BUNDLE_IDENTIFIER: dev.adrian.randomon
+              run: |
+                  python3 -m pip install --quiet --break-system-packages "pyjwt[crypto]" requests
+                  python3 package/macos/register_bundle_id.py
+
             - name: Fetch Signing Assets
               uses: castdrian/setup-apple-certificate@main
               id: cert
