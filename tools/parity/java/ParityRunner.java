@@ -36,11 +36,12 @@ public class ParityRunner {
     };
 
     public static void main(String[] args) throws Exception {
-        if (args.length != 3) {
-            System.err.println("usage: ParityRunner <rom> <jobs file> <output directory>");
+        if (args.length != 3 && args.length != 4) {
+            System.err.println("usage: ParityRunner <rom> <jobs file> <output directory> [game update]");
             System.exit(2);
         }
         String romPath = new File(args[0]).getAbsolutePath();
+        String updatePath = args.length == 4 ? new File(args[3]).getAbsolutePath() : null;
         List<String> jobs = Files.readAllLines(Paths.get(args[1]), StandardCharsets.UTF_8);
         Path outputDirectory = Paths.get(args[2]);
         Files.createDirectories(outputDirectory);
@@ -50,7 +51,9 @@ public class ParityRunner {
                 continue;
             }
             String[] fields = job.split("\t");
-            runJob(romPath, fields[0], Long.parseLong(fields[1]), fields[2], fields[3], outputDirectory, bundle);
+            boolean saveAsDirectory = fields.length > 4 && fields[4].equals("dir");
+            runJob(romPath, updatePath, fields[0], Long.parseLong(fields[1]), fields[2], fields[3],
+                    saveAsDirectory, outputDirectory, bundle);
         }
     }
 
@@ -66,19 +69,23 @@ public class ParityRunner {
         return Settings.fromString(text);
     }
 
-    private static RomHandler loadHandler(String romPath) {
+    private static RomHandler loadHandler(String romPath, String updatePath) {
         for (RomHandler.Factory factory : FACTORIES) {
             if (factory.isLoadable(romPath)) {
                 RomHandler handler = factory.create(RandomSource.instance());
                 handler.loadRom(romPath);
+                if (updatePath != null) {
+                    handler.loadGameUpdate(updatePath);
+                }
                 return handler;
             }
         }
         throw new IllegalArgumentException("unsupported ROM " + romPath);
     }
 
-    private static void runJob(String romPath, String id, long seed, String mode, String settingsText,
-                               Path outputDirectory, ResourceBundle bundle) throws Exception {
+    private static void runJob(String romPath, String updatePath, String id, long seed, String mode,
+                               String settingsText, boolean saveAsDirectory, Path outputDirectory,
+                               ResourceBundle bundle) throws Exception {
         Path romOutput = outputDirectory.resolve(id + ".rom");
         Path logOutput = outputDirectory.resolve(id + ".log");
         Path checkValueOutput = outputDirectory.resolve(id + ".cv");
@@ -86,12 +93,12 @@ public class ParityRunner {
         try {
             Settings settings = parseSettings(mode, settingsText);
             settings.setCustomNames(FileFunctions.getCustomNames());
-            RomHandler handler = loadHandler(romPath);
+            RomHandler handler = loadHandler(romPath, updatePath);
             settings.tweakForRom(handler);
             ByteArrayOutputStream buffer = new ByteArrayOutputStream();
             PrintStream log = new PrintStream(buffer, false, "UTF-8");
             handler.setLog(log);
-            int checkValue = new Randomizer(settings, handler, bundle, false)
+            int checkValue = new Randomizer(settings, handler, bundle, saveAsDirectory)
                     .randomize(romOutput.toString(), log, seed);
             log.flush();
             Files.write(logOutput, buffer.toByteArray());
