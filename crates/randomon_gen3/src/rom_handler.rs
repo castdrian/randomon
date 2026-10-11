@@ -122,6 +122,13 @@ impl RomHandler for Gen3RomHandler {
         Vec::new()
     }
 
+    fn set_pokemon_pool(&mut self, settings: Option<&Settings>) {
+        randomon_core::engine::pool::set_pokemon_pool(self, settings);
+        if settings.is_some() && self.core.engine.pool.main.is_empty() {
+            randomon_core::engine::pool::set_pokemon_pool(self, None);
+        }
+    }
+
     fn remove_evos_for_pokemon_pool(&mut self) {
         self.remove_evolutions_outside_pool();
     }
