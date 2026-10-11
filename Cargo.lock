@@ -3200,6 +3200,8 @@ dependencies = [
  "randomon_gen1",
  "randomon_gen2",
  "randomon_gen5",
+ "randomon_gen6",
+ "randomon_gen7",
  "randomon_java",
  "randomon_settings",
  "rfd",
@@ -3216,6 +3218,8 @@ dependencies = [
  "randomon_gen1",
  "randomon_gen2",
  "randomon_gen5",
+ "randomon_gen6",
+ "randomon_gen7",
  "randomon_java",
  "randomon_settings",
 ]
@@ -3229,6 +3233,17 @@ dependencies = [
  "randomon_log",
  "randomon_settings",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "randomon_ctr"
+version = "0.1.0"
+dependencies = [
+ "randomon_core",
+ "randomon_data",
+ "randomon_formats",
+ "randomon_log",
+ "randomon_settings",
 ]
 
 [[package]]
@@ -3290,6 +3305,32 @@ dependencies = [
  "randomon_java",
  "randomon_log",
  "randomon_nds",
+ "randomon_settings",
+]
+
+[[package]]
+name = "randomon_gen6"
+version = "0.1.0"
+dependencies = [
+ "randomon_core",
+ "randomon_ctr",
+ "randomon_data",
+ "randomon_formats",
+ "randomon_java",
+ "randomon_log",
+ "randomon_settings",
+]
+
+[[package]]
+name = "randomon_gen7"
+version = "0.1.0"
+dependencies = [
+ "randomon_core",
+ "randomon_ctr",
+ "randomon_data",
+ "randomon_formats",
+ "randomon_java",
+ "randomon_log",
  "randomon_settings",
 ]
 

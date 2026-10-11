@@ -236,4 +236,8 @@ impl GameData {
     pub fn mega(&self, id: MegaEvolutionId) -> &MegaEvolution {
         &self.mega_evolutions[id.index()]
     }
+
+    pub fn mega_mut(&mut self, id: MegaEvolutionId) -> &mut MegaEvolution {
+        &mut self.mega_evolutions[id.index()]
+    }
 }

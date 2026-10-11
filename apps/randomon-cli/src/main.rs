@@ -2,10 +2,12 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Parser;
-use randomon_core::{HandlerRegistry, RandomizationOptions, RomOutput};
+use randomon_core::{HandlerRegistry, RandomizationOptions, RomOutput, write_directory_output};
 use randomon_gen1::Gen1Factory;
 use randomon_gen2::Gen2Factory;
 use randomon_gen5::Gen5Factory;
+use randomon_gen6::Gen6Factory;
+use randomon_gen7::Gen7Factory;
 use randomon_java::RandomSource;
 use randomon_settings::Settings;
 
@@ -57,7 +59,7 @@ struct Arguments {
     #[arg(
         short = 'u',
         value_name = "UPDATE_FILE",
-        help = "3DS game update (.cia) to apply first"
+        help = "3DS game update (.cia) to apply first; forces LayeredFS output"
     )]
     game_update: Option<PathBuf>,
 
@@ -78,42 +80,78 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(arguments: Arguments) -> Result<(), String> {
-    let settings = load_settings(&arguments)?;
-    if arguments.game_update.is_some() {
-        return Err("3DS game updates arrive with the Gen 6 and 7 handlers.".to_owned());
-    }
-    let rom = std::fs::read(&arguments.input)
-        .map_err(|error| format!("Couldn't read {}: {error}", arguments.input.display()))?;
-    let registry = HandlerRegistry::new()
+fn registry() -> HandlerRegistry {
+    HandlerRegistry::new()
         .with(Gen1Factory)
         .with(Gen2Factory)
-        .with(Gen5Factory);
-    let file_name = file_name_of(&arguments.input);
-    let game = registry
-        .game_info(&rom, &file_name)
-        .map_err(|_| format!("Could not load {file_name} - it is not a supported ROM yet."))?;
+        .with(Gen5Factory)
+        .with(Gen6Factory)
+        .with(Gen7Factory)
+}
+
+fn is_3ds(generation: i32) -> bool {
+    matches!(generation, 6 | 7)
+}
+
+fn output_mode(arguments: &Arguments, generation: i32) -> bool {
     let mut save_as_directory = arguments.save_as_directory;
-    if save_as_directory && !matches!(game.generation, 6 | 7) {
+    if arguments.game_update.is_some() && is_3ds(generation) {
+        if !save_as_directory {
+            eprintln!("WARNING: Forcing save as directory since a game update was supplied.");
+        }
+        save_as_directory = true;
+    }
+    if save_as_directory && !is_3ds(generation) {
         save_as_directory = false;
         eprintln!(
             "WARNING: Saving as directory does not make sense for non-3DS games, ignoring \"-d\" flag..."
         );
     }
+    save_as_directory
+}
+
+fn absolute(path: &Path) -> PathBuf {
+    std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn run(arguments: Arguments) -> Result<(), String> {
+    let settings = load_settings(&arguments)?;
+    let registry = registry();
+    let input = absolute(&arguments.input);
+    let input_name = input.to_string_lossy().into_owned();
+    let game = registry.game_info_file(&input, &input_name).map_err(|_| {
+        format!(
+            "Could not load {} - it is not a supported ROM yet.",
+            file_name_of(&input)
+        )
+    })?;
+    let save_as_directory = output_mode(&arguments, game.generation);
     let output = if save_as_directory {
         arguments.output.clone()
     } else {
         fix_filename(&arguments.output, &game.default_extension)
     };
+    if !save_as_directory && game.generation >= 4 && absolute(&output) == input {
+        return Err(
+            "You cannot overwrite the original ROM when you save a DS randomization.\nPlease choose a different filename."
+                .to_owned(),
+        );
+    }
     let seed = arguments.seed.unwrap_or_else(RandomSource::pick_seed);
+    let game_update = arguments
+        .game_update
+        .clone()
+        .filter(|_| is_3ds(game.generation));
     let options = RandomizationOptions {
-        file_name: file_name_of(&output),
+        file_name: input_name,
         save_as_directory,
         handler_logging: false,
+        output_path: (!save_as_directory).then(|| output.clone()),
+        game_update,
         ..RandomizationOptions::default()
     };
     let result = registry
-        .randomize(&rom, &settings, seed, &options)
+        .randomize_file(&input, &settings, seed, &options)
         .map_err(|error| error.to_string())?;
     if result.feedback.changed_starter {
         eprintln!(
@@ -171,16 +209,9 @@ fn write_output(output: &Path, rom: &RomOutput) -> Result<(), String> {
     match rom {
         RomOutput::File(bytes) => std::fs::write(output, bytes)
             .map_err(|error| format!("Couldn't write {}: {error}", output.display())),
-        RomOutput::Directory(files) => {
-            for file in files {
-                let destination = output.join(&file.path);
-                if let Some(parent) = destination.parent() {
-                    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-                }
-                std::fs::write(&destination, &file.bytes).map_err(|error| error.to_string())?;
-            }
-            Ok(())
-        }
+        RomOutput::Directory(files) => write_directory_output(output, files)
+            .map_err(|error| format!("Couldn't write {}: {error}", output.display())),
+        RomOutput::Written(_) => Ok(()),
     }
 }
 
