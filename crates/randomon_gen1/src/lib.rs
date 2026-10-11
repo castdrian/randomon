@@ -1,4 +1,4 @@
-mod gb;
+mod assets;
 mod handler;
 mod maps;
 mod moves;
