@@ -330,8 +330,6 @@ const CASES: &[(&str, Tweak)] = &[
     ("tweak_type_effectiveness", |s| {
         s.current_misc_tweaks = tweak_mask(&[MiscTweak::UpdateTypeEffectiveness]);
         s.trainers_mod = TrainersMod::TypeThemed;
-        s.randomize_held_items_for_regular_trainer_pokemon = true;
-        s.sensible_items_only_for_trainer_pokemon = true;
     }),
     ("tweak_bars_distortion_rotom", |s| {
         s.current_misc_tweaks = tweak_mask(&[

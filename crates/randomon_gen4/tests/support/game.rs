@@ -15,7 +15,6 @@ const CLASS_COUNT: usize = 130;
 const DPPT_WILD_FILES: usize = 183;
 const HGSS_WILD_FILES: usize = 142;
 const ITEM_BALLS: usize = 340;
-const ITEM_DATA_FILES: usize = 520;
 const PERSONAL_FILES: usize = 508;
 const DTCM_TAIL: usize = 0x40;
 const ITCM_SIZE: usize = 0x40;
@@ -25,6 +24,7 @@ const ARM9_START: usize = 0x4000;
 pub struct Quirks {
     pub empty_headbutt_tree: bool,
     pub empty_bug_contest_day: bool,
+    pub missing_night_fishing: bool,
 }
 
 pub struct GameBuilder {
@@ -742,7 +742,8 @@ impl GameBuilder {
             put_u16(&mut data, offset, regular_species(index + 3));
             put_u16(&mut data, offset + 2, regular_species(index + 4));
         }
-        if index.is_multiple_of(3) {
+        let has_rods = rates[4] != 0 || rates[5] != 0;
+        if has_rods && !(self.quirks.missing_night_fishing && index.is_multiple_of(8)) {
             put_u16(&mut data, offset + 4, regular_species(index + 5));
         }
         if index.is_multiple_of(9) {
@@ -1097,7 +1098,8 @@ impl GameBuilder {
             shops.extend_from_slice(&words(&[0xFFFF]));
         }
         self.place_in_arm9(&shops, 0);
-        self.put_file("ItemData", narc(vec![vec![0x33u8; 36]; ITEM_DATA_FILES]));
+        let item_files = if self.is_dp() { 514 } else { 515 };
+        self.put_file("ItemData", narc(vec![vec![0x33u8; 36]; item_files]));
         let battle = self.int("BattleOvlNumber");
         let mut common = hex(gen4::PICKUP_TABLE_LOCATOR);
         common.extend(words(&(0..14).map(|slot| slot + 20).collect::<Vec<_>>()));
