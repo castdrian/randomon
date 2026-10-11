@@ -2,8 +2,9 @@ use std::collections::BTreeSet;
 
 use randomon_data::constants::species;
 use randomon_data::{PokemonId, Type};
-use randomon_settings::Settings;
+use randomon_settings::{GenRestrictions, Settings};
 
+use crate::engine::choose::first_non_empty;
 use crate::engine::evolutions::evolutionary_relatives;
 use crate::engine::util::pick;
 use crate::error::Result;
@@ -17,10 +18,7 @@ const GEN5_POKEMON_COUNT: usize = 649;
 const GEN6_POKEMON_COUNT: usize = 721;
 
 pub fn without_null(list: Vec<Option<PokemonId>>) -> Vec<PokemonId> {
-    list.into_iter()
-        .skip(1)
-        .map(|pokemon| pokemon.expect("only index 0 of a Pokemon list is null"))
-        .collect()
+    list.into_iter().skip(1).flatten().collect()
 }
 
 pub fn all_pokemon_without_null<H: RomHandler + ?Sized>(handler: &H) -> Vec<PokemonId> {
@@ -77,6 +75,65 @@ fn add_all_pokes_incl_formes<H: RomHandler + ?Sized>(
     }
 }
 
+fn restricted_pool<H: RomHandler + ?Sized>(
+    handler: &H,
+    restrictions: GenRestrictions,
+    is_sm: bool,
+) -> Vec<PokemonId> {
+    let all = handler.get_pokemon();
+    let max_gen7 = if is_sm {
+        species::MARSHADOW
+    } else {
+        species::ZERAORA
+    };
+    let ranges = [
+        (restrictions.allow_gen1, 0, species::BULBASAUR, species::MEW),
+        (
+            restrictions.allow_gen2,
+            GEN2_POKEMON_COUNT,
+            species::CHIKORITA,
+            species::CELEBI,
+        ),
+        (
+            restrictions.allow_gen3,
+            GEN3_POKEMON_COUNT,
+            species::TREECKO,
+            species::DEOXYS,
+        ),
+        (
+            restrictions.allow_gen4,
+            GEN4_POKEMON_COUNT,
+            species::TURTWIG,
+            species::ARCEUS,
+        ),
+        (
+            restrictions.allow_gen5,
+            GEN5_POKEMON_COUNT,
+            species::VICTINI,
+            species::GENESECT,
+        ),
+        (
+            restrictions.allow_gen6,
+            GEN6_POKEMON_COUNT,
+            species::CHESPIN,
+            species::VOLCANION,
+        ),
+        (
+            restrictions.allow_gen7,
+            max_gen7 as usize,
+            species::ROWLET,
+            max_gen7,
+        ),
+    ];
+    let mut pool = Vec::new();
+    for (allowed, previous_count, first, last) in ranges {
+        if allowed && all.len() > previous_count {
+            add_pokes_from_range(&mut pool, &all, first, last);
+        }
+    }
+    pool
+}
+
 pub fn set_pokemon_pool<H: RomHandler + ?Sized>(handler: &mut H, settings: Option<&Settings>) {
     let restrictions = settings
         .filter(|settings| settings.limit_pokemon)
@@ -89,7 +146,9 @@ pub fn set_pokemon_pool<H: RomHandler + ?Sized>(handler: &mut H, settings: Optio
         mega_evolutions: handler.get_mega_evolutions(),
         ..PokemonPool::default()
     };
-    if let Some(restrictions) = restrictions {
+    if let Some(restrictions) = restrictions
+        && !restricted_pool(handler, restrictions, is_sm).is_empty()
+    {
         pool.main = Vec::new();
         pool.main_incl_formes = Vec::new();
         pool.mega_evolutions = Vec::new();
@@ -174,7 +233,9 @@ fn random_from<H: RomHandler + ?Sized>(
 ) -> Result<PokemonId> {
     check_pokemon_restrictions(handler);
     let mut random = handler.core().engine.random.clone();
-    pick(&mut random, list(&handler.core().engine.pool))
+    let pool = &handler.core().engine.pool;
+    let choices = first_non_empty(&[list(pool), &pool.main_incl_formes, &pool.main]);
+    pick(&mut random, &choices)
 }
 
 pub fn random_pokemon<H: RomHandler + ?Sized>(handler: &mut H) -> Result<PokemonId> {
@@ -210,10 +271,50 @@ pub fn random_pokemon_choice<H: RomHandler + ?Sized>(
     }
 }
 
+pub fn pool_choice<H: RomHandler + ?Sized>(
+    handler: &mut H,
+    include_formes: bool,
+) -> Vec<PokemonId> {
+    check_pokemon_restrictions(handler);
+    let pool = &handler.core().engine.pool;
+    if include_formes {
+        first_non_empty(&[&pool.main_incl_formes, &pool.main])
+    } else {
+        pool.main.clone()
+    }
+}
+
+pub fn two_evo_candidates<H: RomHandler + ?Sized>(
+    handler: &mut H,
+    allow_alt_formes: bool,
+) -> Vec<PokemonId> {
+    ensure_two_evo_pokes(handler, allow_alt_formes);
+    handler
+        .core()
+        .engine
+        .two_evo_pokes
+        .clone()
+        .unwrap_or_default()
+}
+
 pub fn random_2_evos_pokemon<H: RomHandler + ?Sized>(
     handler: &mut H,
     allow_alt_formes: bool,
 ) -> Result<PokemonId> {
+    ensure_two_evo_pokes(handler, allow_alt_formes);
+    let mut random = handler.core().engine.random.clone();
+    pick(
+        &mut random,
+        handler
+            .core()
+            .engine
+            .two_evo_pokes
+            .as_deref()
+            .unwrap_or_default(),
+    )
+}
+
+fn ensure_two_evo_pokes<H: RomHandler + ?Sized>(handler: &mut H, allow_alt_formes: bool) {
     if handler.core().engine.two_evo_pokes.is_none() {
         let all = if allow_alt_formes {
             let data = &handler.core().data;
@@ -226,30 +327,28 @@ pub fn random_2_evos_pokemon<H: RomHandler + ?Sized>(
             handler.get_pokemon()
         };
         let data = &handler.core().data;
-        let mut two_evo = Vec::new();
-        for pokemon in all.into_iter().flatten() {
-            if data.evolutions_to(pokemon).is_empty() && !data.evolutions_from(pokemon).is_empty() {
-                let has_second_stage = data
-                    .evolution_targets(pokemon)
-                    .into_iter()
-                    .any(|target| !data.evolutions_from(target).is_empty());
-                if has_second_stage {
-                    two_evo.push(pokemon);
-                }
-            }
-        }
+        let all: Vec<PokemonId> = all.into_iter().flatten().collect();
+        let evolves = |pokemon: &PokemonId| !data.evolutions_from(*pokemon).is_empty();
+        let is_basic = |pokemon: &PokemonId| data.evolutions_to(*pokemon).is_empty();
+        let has_second_stage = |pokemon: &PokemonId| {
+            data.evolution_targets(*pokemon)
+                .iter()
+                .any(|target| !data.evolutions_from(*target).is_empty())
+        };
+        let two_stages: Vec<PokemonId> = all
+            .iter()
+            .copied()
+            .filter(|pokemon| is_basic(pokemon) && evolves(pokemon) && has_second_stage(pokemon))
+            .collect();
+        let basic_evolvers: Vec<PokemonId> = all
+            .iter()
+            .copied()
+            .filter(|pokemon| is_basic(pokemon) && evolves(pokemon))
+            .collect();
+        let evolvers: Vec<PokemonId> = all.iter().copied().filter(evolves).collect();
+        let two_evo = first_non_empty(&[&two_stages, &basic_evolvers, &evolvers, &all]);
         handler.core_mut().engine.two_evo_pokes = Some(two_evo);
     }
-    let mut random = handler.core().engine.random.clone();
-    pick(
-        &mut random,
-        handler
-            .core()
-            .engine
-            .two_evo_pokes
-            .as_deref()
-            .unwrap_or_default(),
-    )
 }
 
 pub fn pokemon_of_type<H: RomHandler + ?Sized>(

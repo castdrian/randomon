@@ -200,7 +200,9 @@ fn pick_static_power_lvl_replacement<H: RomHandler + ?Sized>(
     let mut expand_rounds = 0;
     while can_pick.is_empty() || (can_pick.len() < 3 && expand_rounds < 3) {
         if pool.is_empty() && expand_rounds > 10_000 {
-            return Err(RandomizationError::EmptyChoice);
+            return Err(RandomizationError::EmptyChoice(
+                std::panic::Location::caller(),
+            ));
         }
         for &pokemon in pool {
             let bst = data.pk(pokemon).bst_for_power_levels();

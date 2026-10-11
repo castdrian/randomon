@@ -4,8 +4,8 @@ use thiserror::Error;
 pub enum RandomizationError {
     #[error("{0}")]
     Randomization(String),
-    #[error("bound must be positive")]
-    EmptyChoice,
+    #[error("nothing to choose from at {0}")]
+    EmptyChoice(&'static std::panic::Location<'static>),
     #[error("java.lang.NullPointerException: {0}")]
     NullPointer(&'static str),
     #[error("java.lang.IndexOutOfBoundsException: {0}")]

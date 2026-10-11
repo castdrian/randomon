@@ -1,7 +1,6 @@
 use randomon_core::{RandomizationError, Result};
-use randomon_data::constants::gb;
-use randomon_data::{PokemonId, Trainer, TrainerPokemon, moves_at_level};
-use randomon_gb::{bank_of, calculate_offset, make_gb_pointer};
+use randomon_data::{PokemonId, Trainer, TrainerPokemon};
+use randomon_gb::{bank_of, calculate_offset};
 use randomon_settings::java_text::java_trim;
 
 use crate::constants::tag_trainers;
@@ -100,62 +99,8 @@ impl Gen2RomHandler {
         Ok(trainers)
     }
 
-    fn write_trainer_pokemon(
-        &mut self,
-        offset: &mut i32,
-        trainer: &Trainer,
-        tp: &TrainerPokemon,
-        movesets: &randomon_core::Movesets,
-    ) -> Result<()> {
-        self.set_byte(*offset, tp.level as u8);
-        let number = self.number_of(tp.pokemon);
-        self.set_byte(*offset + 1, number);
-        *offset += 2;
-        if trainer.pokemon_have_items() {
-            self.set_byte(*offset, tp.held_item as u8);
-            *offset += 1;
-        }
-        if trainer.pokemon_have_custom_moves() {
-            let moves = if tp.reset_moves {
-                let moveset = movesets
-                    .get(&i32::from(number))
-                    .ok_or(RandomizationError::NullPointer("movesets.get"))?;
-                moves_at_level(moveset, tp.level, 0)
-            } else {
-                tp.moves
-            };
-            for (slot, &mv) in moves.iter().enumerate() {
-                self.set_byte(*offset + slot as i32, mv as u8);
-            }
-            *offset += 4;
-        }
-        Ok(())
-    }
-
     pub(crate) fn write_trainers(&mut self, trainers: &[Trainer]) -> Result<()> {
-        let pointers = self.trainer_pointers();
-        let movesets = self.read_moves_learnt();
-        let mut iterator = trainers.iter();
-        for class in 0..self.trainer_class_amount() {
-            let mut offset = pointers[class as usize];
-            for _ in 0..self.class_limit(class)? {
-                let trainer = iterator
-                    .next()
-                    .ok_or(RandomizationError::IndexOutOfBounds("trainers"))?;
-                let name = trainer.name.clone().unwrap_or_default();
-                let name_length = self.translate(&name).len() as i32;
-                self.write_fixed_string(&name, offset, name_length + 1);
-                offset += name_length + 1;
-                self.set_byte(offset, trainer.poketype as u8);
-                offset += 1;
-                for tp in &trainer.pokemon {
-                    self.write_trainer_pokemon(&mut offset, trainer, tp, &movesets)?;
-                }
-                self.set_byte(offset, POKEMON_TERMINATOR);
-                offset += 1;
-            }
-        }
-        Ok(())
+        self.store_trainers(trainers)
     }
 
     fn skip_trainer_pokemon(&self, mut offset: i32, data_type: i32) -> i32 {
@@ -186,54 +131,16 @@ impl Gen2RomHandler {
         Ok(names)
     }
 
-    fn copy_trainer_pokemon(&self, mut offset: i32, data_type: i32, out: &mut Vec<u8>) -> i32 {
-        while self.byte(offset) != POKEMON_TERMINATOR {
-            let mut length = 2;
-            if has_items(data_type) {
-                length += 1;
-            }
-            if has_moves(data_type) {
-                length += 4;
-            }
-            out.extend_from_slice(&self.rom[offset as usize..(offset + length) as usize]);
-            offset += length;
-        }
-        out.push(POKEMON_TERMINATOR);
-        offset + 1
-    }
-
     pub(crate) fn write_trainer_names(&mut self, names: &[String]) -> Result<()> {
         if self.value("CanChangeTrainerText") == 0 {
             return Ok(());
         }
-        let table = self.value("TrainerDataTableOffset");
-        let pointers = self.trainer_pointers();
-        let mut class_starts = Vec::with_capacity(pointers.len());
-        let mut new_data: Vec<u8> = Vec::new();
-        let mut names = names.iter();
-        for class in 0..self.trainer_class_amount() {
-            let mut offset = pointers[class as usize];
-            class_starts.push(new_data.len() as i32);
-            for _ in 0..self.class_limit(class)? {
-                let name = names
-                    .next()
-                    .ok_or(RandomizationError::IndexOutOfBounds("trainerNames"))?;
-                let stripped = name.replace('9', "");
-                new_data.extend(self.translate(java_trim(&stripped)));
-                new_data.push(gb::STRING_TERMINATOR);
-                offset += self.string_length_at(offset) + 1;
-                let data_type = self.int(offset);
-                new_data.push(data_type as u8);
-                offset = self.copy_trainer_pokemon(offset + 1, data_type, &mut new_data);
-            }
+        let mut trainers = self.read_trainers()?;
+        for (trainer, name) in trainers.iter_mut().zip(names) {
+            let stripped = name.replace('9', "");
+            trainer.name = Some(java_trim(&stripped).to_owned());
         }
-        let base = pointers[0];
-        self.write_bytes(base, &new_data);
-        for class in 1..self.trainer_class_amount() {
-            let pointer = make_gb_pointer(base + class_starts[class as usize]);
-            self.set_word(table + class * 2, pointer);
-        }
-        Ok(())
+        self.store_trainers(&trainers)
     }
 
     pub(crate) fn read_trainer_class_names(&self) -> Vec<String> {

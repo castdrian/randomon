@@ -2,18 +2,23 @@ use randomon_java::JavaRng;
 
 use crate::error::{RandomizationError, Result};
 
+#[track_caller]
 pub fn random_index(random: &mut impl JavaRng, len: usize) -> Result<usize> {
     if len == 0 {
-        return Err(RandomizationError::EmptyChoice);
+        return Err(RandomizationError::EmptyChoice(
+            std::panic::Location::caller(),
+        ));
     }
     Ok(random.next_int_bounded(len as i32) as usize)
 }
 
+#[track_caller]
 pub fn pick<T: Copy>(random: &mut impl JavaRng, list: &[T]) -> Result<T> {
     let index = random_index(random, list.len())?;
     Ok(list[index])
 }
 
+#[track_caller]
 pub fn take<T>(random: &mut impl JavaRng, list: &mut Vec<T>) -> Result<T> {
     let index = random_index(random, list.len())?;
     Ok(list.remove(index))

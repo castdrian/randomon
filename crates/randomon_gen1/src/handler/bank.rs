@@ -2,8 +2,8 @@ use randomon_core::{Movesets, RandomizationError, Result, RomHandler};
 use randomon_data::constants::gen1;
 use randomon_data::{MoveLearnt, PokemonId, Trainer};
 use randomon_gb::{
-    BankPacker, Placement, Region, bank_end, bank_of, calculate_offset, make_gb_pointer, read_word,
-    write_word,
+    BankPacker, Placement, Region, bank_end, bank_of, calculate_offset, make_gb_pointer,
+    merge_regions, read_word, write_word,
 };
 
 use super::Gen1RomHandler;
@@ -221,7 +221,19 @@ impl Gen1RomHandler {
         regions
     }
 
-    fn bank_layout(&self) -> BankLayout {
+    fn pinned_classes(&self) -> Vec<usize> {
+        self.pinned_slots
+            .iter()
+            .filter_map(|pinned| {
+                self.trainer_layout
+                    .class_of_position
+                    .get(pinned.position)
+                    .copied()
+            })
+            .collect()
+    }
+
+    fn bank_layout(&self, compact: bool) -> BankLayout {
         let moveset_bank = bank_of(self.moveset_table());
         let trainer_bank = bank_of(self.value("TrainerDataTableOffset"));
         let mut regions: Vec<Region> = self
@@ -230,18 +242,31 @@ impl Gen1RomHandler {
             .filter(|region| bank_of(region.offset) == moveset_bank)
             .collect();
         let moveset_regions: Vec<usize> = (0..regions.len()).collect();
+        let pinned = self.pinned_classes();
         let mut class_regions = Vec::with_capacity(self.trainer_layout.class_regions.len());
-        for extent in &self.trainer_layout.class_regions {
+        let mut shared = Vec::new();
+        for (index, extent) in self.trainer_layout.class_regions.iter().enumerate() {
             let usable = extent.filter(|&region| {
                 bank_of(region.offset) == trainer_bank
                     && !regions.iter().any(|&other| overlaps(region, other))
             });
-            class_regions.push(usable.map(|region| {
-                regions.push(region);
-                regions.len() - 1
-            }));
+            let keeps_own = !compact || pinned.contains(&(index + 1));
+            match usable {
+                Some(region) if keeps_own => {
+                    regions.push(region);
+                    class_regions.push(Some(regions.len() - 1));
+                }
+                Some(region) => {
+                    shared.push(region);
+                    class_regions.push(None);
+                }
+                None => class_regions.push(None),
+            }
         }
-        let trainer_regions: Vec<usize> = class_regions.iter().flatten().copied().collect();
+        let shared_start = regions.len();
+        regions.extend(merge_regions(shared));
+        let mut trainer_regions: Vec<usize> = (shared_start..regions.len()).collect();
+        trainer_regions.extend(class_regions.iter().flatten().copied());
         let in_bank = |indices: &[usize], bank: i32| -> Vec<usize> {
             indices
                 .iter()
@@ -342,8 +367,9 @@ impl Gen1RomHandler {
         &self,
         moveset_blobs: &[Vec<u8>],
         class_blobs: &[ClassBlob],
+        compact: bool,
     ) -> std::result::Result<PackedBank, i32> {
-        let layout = self.bank_layout();
+        let layout = self.bank_layout(compact);
         let mut packer = BankPacker::new(&layout.regions, 0);
         let mut moveset_pointers: Vec<Option<i32>> = moveset_blobs
             .iter()
@@ -493,7 +519,10 @@ impl Gen1RomHandler {
         let original_sizes = self.trainer_layout.party_sizes.clone();
         loop {
             let class_blobs = self.class_blobs(&trainers)?;
-            match self.try_pack(&moveset_blobs, &class_blobs) {
+            let packed = self
+                .try_pack(&moveset_blobs, &class_blobs, false)
+                .or_else(|_| self.try_pack(&moveset_blobs, &class_blobs, true));
+            match packed {
                 Ok(packed) => {
                     self.write_packed(&packed);
                     self.relocate_pinned(&packed, &class_blobs);

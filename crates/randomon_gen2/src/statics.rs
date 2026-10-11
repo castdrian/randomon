@@ -53,13 +53,9 @@ impl Gen2RomHandler {
         let width = length.max(0) as usize;
         let name_units = name.encode_utf16().count();
         let padded = format!("{name}{}", " ".repeat(width.saturating_sub(name_units)));
-        let raw = self.translate(&padded);
-        let bytes = raw
-            .get(..width)
-            .ok_or(RandomizationError::IndexOutOfBounds(
-                "writePaddedPokemonName",
-            ))?
-            .to_vec();
+        let mut bytes = self.translate(&padded);
+        let space = self.translate(" ").first().copied().unwrap_or(0x7F);
+        bytes.resize(width, space);
         self.write_bytes(offset, &bytes);
         Ok(())
     }
