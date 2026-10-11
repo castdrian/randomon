@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use randomon_settings::java_text::java_trim;
 
-use crate::gb::{TextTables, bank_of, calculate_offset, read_word};
 use crate::rom_entry::RomEntry;
+use randomon_gb::{TextTables, bank_of, calculate_offset, read_word};
 
 pub struct MapData {
     pub item_offsets: Vec<Option<Vec<i32>>>,

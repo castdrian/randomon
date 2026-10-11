@@ -4,6 +4,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use randomon_core::{HandlerRegistry, RandomizationOptions, RomOutput};
 use randomon_gen1::Gen1Factory;
+use randomon_gen2::Gen2Factory;
 use randomon_java::RandomSource;
 use randomon_settings::Settings;
 
@@ -83,7 +84,7 @@ fn run(arguments: Arguments) -> Result<(), String> {
     }
     let rom = std::fs::read(&arguments.input)
         .map_err(|error| format!("Couldn't read {}: {error}", arguments.input.display()))?;
-    let registry = HandlerRegistry::new().with(Gen1Factory);
+    let registry = HandlerRegistry::new().with(Gen1Factory).with(Gen2Factory);
     let file_name = file_name_of(&arguments.input);
     let game = registry
         .game_info(&rom, &file_name)
