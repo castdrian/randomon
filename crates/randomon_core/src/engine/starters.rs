@@ -1,8 +1,10 @@
 use randomon_data::PokemonId;
 use randomon_settings::{AbilitiesMod, Settings};
 
-use crate::engine::pool::{random_2_evos_pokemon, random_pokemon_choice};
-use crate::error::{RandomizationError, Result};
+use crate::engine::choose::first_non_empty;
+use crate::engine::pool::{pool_choice, two_evo_candidates};
+use crate::engine::util::pick;
+use crate::error::Result;
 use crate::handler::RomHandler;
 
 fn starter_banned_list<H: RomHandler + ?Sized>(handler: &H, settings: &Settings) -> Vec<PokemonId> {
@@ -16,20 +18,51 @@ fn starter_banned_list<H: RomHandler + ?Sized>(handler: &H, settings: &Settings)
     banned
 }
 
+fn pick_starter<H: RomHandler + ?Sized>(
+    handler: &H,
+    candidates: &[PokemonId],
+    picked: &[PokemonId],
+    banned: &[PokemonId],
+) -> Result<PokemonId> {
+    let data = &handler.core().data;
+    let usable: Vec<PokemonId> = candidates
+        .iter()
+        .copied()
+        .filter(|&pokemon| data.exists(pokemon) && !data.pk(pokemon).actually_cosmetic)
+        .collect();
+    let fresh: Vec<PokemonId> = usable
+        .iter()
+        .copied()
+        .filter(|pokemon| !picked.contains(pokemon))
+        .collect();
+    let allowed: Vec<PokemonId> = fresh
+        .iter()
+        .copied()
+        .filter(|pokemon| !banned.contains(pokemon))
+        .collect();
+    let choices = first_non_empty(&[&allowed, &fresh, &usable, candidates]);
+    let mut random = handler.core().engine.random.clone();
+    pick(&mut random, &choices)
+}
+
 fn random_starter<H: RomHandler + ?Sized>(
     handler: &mut H,
     allow_alt_formes: bool,
     picked: &[PokemonId],
     banned: &[PokemonId],
 ) -> Result<PokemonId> {
-    let mut pokemon = random_pokemon_choice(handler, allow_alt_formes)?;
-    while picked.contains(&pokemon)
-        || banned.contains(&pokemon)
-        || handler.core().data.pk(pokemon).actually_cosmetic
-    {
-        pokemon = random_pokemon_choice(handler, allow_alt_formes)?;
-    }
-    Ok(pokemon)
+    let candidates = pool_choice(handler, allow_alt_formes);
+    pick_starter(handler, &candidates, picked, banned)
+}
+
+fn random_two_evo_starter<H: RomHandler + ?Sized>(
+    handler: &mut H,
+    allow_alt_formes: bool,
+    picked: &[PokemonId],
+    banned: &[PokemonId],
+) -> Result<PokemonId> {
+    let candidates = two_evo_candidates(handler, allow_alt_formes);
+    pick_starter(handler, &candidates, picked, banned)
 }
 
 fn custom_or_random<H: RomHandler + ?Sized>(
@@ -40,14 +73,13 @@ fn custom_or_random<H: RomHandler + ?Sized>(
     picked: &[PokemonId],
     banned: &[PokemonId],
 ) -> Result<PokemonId> {
-    if custom - 1 == 0 {
-        random_starter(handler, allow_alt_formes, picked, banned)
-    } else {
-        rom_pokemon
-            .get((custom - 1) as usize)
-            .copied()
-            .flatten()
-            .ok_or(RandomizationError::IndexOutOfBounds("custom starter"))
+    let chosen = usize::try_from(custom - 1)
+        .ok()
+        .filter(|&index| index > 0)
+        .and_then(|index| rom_pokemon.get(index).copied().flatten());
+    match chosen {
+        Some(pokemon) => Ok(pokemon),
+        None => random_starter(handler, allow_alt_formes, picked, banned),
     }
 }
 
@@ -65,15 +97,11 @@ pub fn custom_starters<H: RomHandler + ?Sized>(handler: &mut H, settings: &Setti
     let mut banned = starter_banned_list(handler, settings);
     let mut picked: Vec<PokemonId> = Vec::new();
     for &choice in &custom {
-        if choice - 1 != 0 {
-            let pokemon = rom_pokemon
-                .get((choice - 1) as usize)
-                .copied()
-                .ok_or(RandomizationError::IndexOutOfBounds("custom starter"))?;
-            if let Some(pokemon) = pokemon {
-                banned.push(pokemon);
-            }
-        }
+        let chosen = usize::try_from(choice - 1)
+            .ok()
+            .filter(|&index| index > 0)
+            .and_then(|index| rom_pokemon.get(index).copied().flatten());
+        banned.extend(chosen);
     }
     let first = custom_or_random(
         handler,
@@ -104,10 +132,7 @@ pub fn custom_starters<H: RomHandler + ?Sized>(handler: &mut H, settings: &Setti
         )?;
         picked.push(third);
         for _ in 3..handler.starter_count() {
-            let mut pokemon = random_2_evos_pokemon(handler, allow_alt_formes)?;
-            while picked.contains(&pokemon) {
-                pokemon = random_2_evos_pokemon(handler, allow_alt_formes)?;
-            }
+            let pokemon = random_two_evo_starter(handler, allow_alt_formes, &picked, &[])?;
             picked.push(pokemon);
         }
     }
@@ -142,10 +167,7 @@ pub fn randomize_basic_two_evos_starters<H: RomHandler + ?Sized>(
     let banned = starter_banned_list(handler, settings);
     let mut picked: Vec<PokemonId> = Vec::new();
     for _ in 0..count {
-        let mut pokemon = random_2_evos_pokemon(handler, allow_alt_formes)?;
-        while picked.contains(&pokemon) || banned.contains(&pokemon) {
-            pokemon = random_2_evos_pokemon(handler, allow_alt_formes)?;
-        }
+        let pokemon = random_two_evo_starter(handler, allow_alt_formes, &picked, &banned)?;
         picked.push(pokemon);
     }
     handler.core_mut().engine.picked_starters = picked.clone();

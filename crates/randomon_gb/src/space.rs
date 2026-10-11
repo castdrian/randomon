@@ -39,18 +39,15 @@ pub fn bank_end(offset: i32) -> i32 {
     (offset / gb::BANK_SIZE + 1) * gb::BANK_SIZE
 }
 
-pub fn uniform_tail(rom: &[u8], start: i32) -> i32 {
+pub fn uniform_tail(rom: &[u8], start: i32) -> Option<(Region, u8)> {
     let end = bank_end(start).min(rom.len() as i32);
     if start >= end || start < 0 {
-        return 0;
+        return None;
     }
     let tail = &rom[start as usize..end as usize];
     let filler = tail[0];
-    if (filler == 0x00 || filler == 0xFF) && tail.iter().all(|&byte| byte == filler) {
-        end - start
-    } else {
-        0
-    }
+    ((filler == 0x00 || filler == 0xFF) && tail.iter().all(|&byte| byte == filler))
+        .then(|| (Region::new(start, end - start), filler))
 }
 
 struct Fill {
@@ -203,7 +200,10 @@ mod tests {
     fn measures_uniform_bank_tails() {
         let mut rom = vec![7u8; gb::BANK_SIZE as usize];
         rom[0x3F00..].fill(0xFF);
-        assert_eq!(uniform_tail(&rom, 0x3F00), 0x100);
-        assert_eq!(uniform_tail(&rom, 0x3EFF), 0);
+        assert_eq!(
+            uniform_tail(&rom, 0x3F00),
+            Some((Region::new(0x3F00, 0x100), 0xFF))
+        );
+        assert_eq!(uniform_tail(&rom, 0x3EFF), None);
     }
 }

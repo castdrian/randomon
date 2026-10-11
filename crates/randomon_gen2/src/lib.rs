@@ -10,6 +10,7 @@ mod moves;
 mod rom_entry;
 mod rom_handler;
 mod statics;
+mod trainer_space;
 mod trainers;
 mod tweaks;
 
