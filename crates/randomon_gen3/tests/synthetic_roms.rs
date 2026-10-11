@@ -439,9 +439,9 @@ fn frlg_bans_trappers_and_unown_from_the_wild() {
         })
         .collect();
     assert!(!trappers.is_empty());
-    for index in 55..60 {
+    for set in &sets[55..60] {
         for &trapper in &trappers {
-            assert!(sets[index].is_banned(trapper));
+            assert!(set.is_banned(trapper));
         }
     }
     assert!(!sets[0].is_banned(trappers[0]));
@@ -501,10 +501,11 @@ fn statics_roamers_and_hardcoded_battles_round_trip() {
                 100 + index as i32,
                 "{name} static {index}"
             );
-            if !encounter.is_egg && index < synthetic::static_entry_count(name) {
-                if synthetic::static_has_level(name, index) {
-                    assert_eq!(encounter.level, 33, "{name} static {index} level");
-                }
+            if !encounter.is_egg
+                && index < synthetic::static_entry_count(name)
+                && synthetic::static_has_level(name, index)
+            {
+                assert_eq!(encounter.level, 33, "{name} static {index} level");
             }
         }
     }
@@ -520,6 +521,24 @@ fn emerald_roamers_follow_their_southern_island_partner() {
         .map(|encounter| number_of(handler.as_ref(), encounter.pkmn))
         .collect();
     assert_eq!(linked, vec![species::LATIOS, species::LATIAS]);
+}
+
+#[test]
+fn patched_roamers_read_their_hardcoded_species() {
+    let ruby = load_entry("Ruby (U)");
+    let statics = ruby.get_static_pokemon();
+    let roamer = statics.last().expect("ruby has a roamer");
+    assert_eq!(number_of(ruby.as_ref(), roamer.pkmn), species::LATIOS);
+    let fire_red = load_entry("Fire Red (U) 1.1");
+    let statics = fire_red.get_static_pokemon();
+    let roamers: Vec<i32> = statics[statics.len() - 3..]
+        .iter()
+        .map(|encounter| number_of(fire_red.as_ref(), encounter.pkmn))
+        .collect();
+    assert_eq!(
+        roamers,
+        vec![species::RAIKOU, species::ENTEI, species::SUICUNE]
+    );
 }
 
 #[test]

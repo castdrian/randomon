@@ -118,7 +118,7 @@ impl Gen3RomHandler {
             {
                 self.apply_tweak_patch("RoamingPokemonTweak")?;
             }
-            RomType::Emerald if first_species >= self.pokemon_count() + 1 => {
+            RomType::Emerald if first_species > self.pokemon_count() => {
                 self.apply_emerald_roamer_patch();
             }
             _ => {}

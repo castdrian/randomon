@@ -685,8 +685,8 @@ impl Builder {
             ],
             species::WURMPLE => vec![(11, 7, species::SILCOON), (12, 7, species::CASCOON)],
             species::GOLBAT => vec![(1, 0, species::CROBAT)],
-            _ if dex % 3 == 1 && dex + 1 <= REAL_POKEMON && dex < 380 => vec![(4, 16, dex + 1)],
-            _ if dex % 3 == 2 && dex + 1 <= REAL_POKEMON && dex < 380 => vec![(4, 36, dex + 1)],
+            _ if dex % 3 == 1 && dex < 380 => vec![(4, 16, dex + 1)],
+            _ if dex % 3 == 2 && dex < 380 => vec![(4, 36, dex + 1)],
             _ => Vec::new(),
         }
     }
