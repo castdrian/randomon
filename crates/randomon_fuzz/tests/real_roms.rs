@@ -5,7 +5,15 @@ fn fuzz_game(rom_env: &str, update_env: Option<&str>, default_cases: u64, defaul
         eprintln!("{rom_env} is not set; skipping");
         return;
     };
-    let update = update_env.and_then(env_path);
+    let update = update_env.and_then(|name| {
+        let requested = std::env::var_os(name)?;
+        let path = env_path(name);
+        assert!(
+            path.is_some(),
+            "{name} points at a missing file: {requested:?}"
+        );
+        path
+    });
     let target = Target::new(rom, update);
     let plan = FuzzPlan::from_env(default_cases, default_threads);
     let summary = fuzz(&target, &plan);

@@ -560,7 +560,7 @@ async fn randomize(
     games: Vec<Game>,
 ) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
-        randomize_blocking(romfs, settings, seed, output, layout, games)
+        crate::engine::guarded(|| randomize_blocking(romfs, settings, seed, output, layout, games))?
     })
     .await
     .map_err(|error| error.to_string())?
