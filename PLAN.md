@@ -172,7 +172,35 @@ Actions use major-version tags, like vbound. The repo's no-comments rule means a
 - **Legal:** the license is GPLv3, with no ROMs, keys or BIOS files in the repo or in CI. Users provide their own games.
 - **3DS output on real hardware:** UPR already works around some instructions that only run correctly in emulators. Those workarounds have to be ported exactly.
 
-## 10. Decisions
+## 10. Brilliant Diamond and Shining Pearl
+
+BDSP support is derived from [Ai0796/BDSP-Randomizers](https://github.com/Ai0796/BDSP-Randomizers) (MIT), not UPR ZX, because UPR doesn't support Switch games.
+
+**What the source does.** About 5k lines of Python. It edits Unity asset bundles with UnityPy: `masterdatas`, `personal_masterdatas`, `ev_script`, `gamesettings`, `UgData` and the English message bundle. It writes per-version ARM64 exefs patches for 1.0.0, 1.1.0–1.1.3, 1.2.0 and 1.3.0, and outputs Atmosphere, Yuzu or Ryujinx mod folders.
+
+**Features to port:**
+- starters, wild encounters (generation pools, legendaries, Safari) and Underground encounters
+- encounter level scaling
+- trainers, movesets, TMs and TM compatibility
+- abilities, evolutions, field items and shops
+- the warp randomizer
+- the extra mods: HGSS walk speed, true size and weather removal
+
+**Compatibility contract.** The source uses Python's unseeded `random`, so there are no seeds or settings files to stay compatible with. Instead:
+- Randomon exactly reproduces Python's MT19937 `random`: `seed`, `random`, `randrange`/`randint` via `getrandbits`, `choice`, `shuffle` and `sample`.
+- A reference harness runs the original code with `random.seed(n)` injected. For the same seed, Randomon must produce identical decoded asset contents: every edited MonoBehaviour field, the script commands and the patch bytes.
+- Bundle container bytes, such as re-compression, are compared only after decoding. Seeds become reproducible for BDSP, which the original never offered.
+
+**Architecture:**
+- `randomon_unity`: a UnityFS bundle reader and writer (LZ4/LZMA blocks, SerializedFile, typetree-driven object reading and writing) that round-trips unmodified bundles losslessly.
+- `randomon_bdsp`: the feature ports, the version detection that picks the exefs patch set, and the mod-folder output layouts.
+- `randomon_settings::bdsp`: a Randomon-native settings model with its own versioned string format. It stays separate from the UPR string so UPR parity is unaffected.
+
+**Input.** An extracted romfs folder, as the original expects. NSP/XCI extraction needs the user's keys and is out of scope.
+
+**Future.** Implement `RomHandler` for BDSP so UPR ZX-style settings can drive BDSP too.
+
+## 11. Decisions
 
 1. **License:** GPL-3.0-or-later.
 2. **Parity:** byte-identical output ROM, log and check value.
