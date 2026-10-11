@@ -20,6 +20,7 @@ randomon_gen6.workspace = true
 randomon_gen7.workspace = true
 randomon_java.workspace = true
 randomon_settings.workspace = true
+randomon_bdsp.workspace = true
 
 
 

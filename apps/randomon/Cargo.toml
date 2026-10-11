@@ -23,6 +23,7 @@ randomon_gen5.workspace = true
 randomon_gen6.workspace = true
 randomon_gen7.workspace = true
 randomon_java.workspace = true
+randomon_bdsp.workspace = true
 tokio = { version = "1", features = ["rt"] }
 
 [lints]
