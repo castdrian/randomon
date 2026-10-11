@@ -28,7 +28,7 @@ const INITIAL_WINDOW_WIDTH: f32 = 1240.0;
 
 pub fn run() -> iced::Result {
     iced::application(Randomon::boot, Randomon::update, Randomon::view)
-        .title("Randomon")
+        .title("randomon")
         .theme(Randomon::theme)
         .subscription(Randomon::subscription)
         .window(window_settings())

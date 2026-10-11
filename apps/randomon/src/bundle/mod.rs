@@ -5,8 +5,7 @@ use std::sync::LazyLock;
 
 pub use properties::{html_to_plain, parse, strip_mnemonic};
 
-const SOURCE: &str =
-    include_str!("../../../../upstream/src/com/dabomstew/pkrandom/newgui/Bundle.properties");
+const SOURCE: &str = include_str!("../../assets/Bundle.properties");
 
 struct Bundle {
     labels: HashMap<String, String>,

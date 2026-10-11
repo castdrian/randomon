@@ -52,7 +52,7 @@ impl Randomon {
 
     fn sidebar(&self) -> Element<'_, Message> {
         let brand = column![
-            text("Randomon").size(22).font(SEMIBOLD),
+            text("randomon").size(22).font(SEMIBOLD),
             text(format!("v{}", env!("CARGO_PKG_VERSION")))
                 .size(12)
                 .style(style::muted_text),
@@ -113,17 +113,17 @@ impl Randomon {
         .on_press(Message::OpenCustomNames);
 
         let support_links = column![
-            text("Enjoying Randomon?").size(12).style(style::muted_text),
-            button(text("♥  Sponsor on GitHub").size(13))
-                .width(Fill)
-                .padding([8, 12])
-                .style(style::support_button)
-                .on_press(Message::OpenLink(support::GITHUB_SPONSORS_URL)),
-            button(text("☕  Support on Ko-fi").size(13))
-                .width(Fill)
-                .padding([8, 12])
-                .style(style::support_button)
-                .on_press(Message::OpenLink(support::KO_FI_URL)),
+            text("Enjoying randomon?").size(12).style(style::muted_text),
+            support_button(
+                support::github_sponsors_icon(),
+                "Sponsor on GitHub",
+                support::GITHUB_SPONSORS_URL
+            ),
+            support_button(
+                support::ko_fi_icon(),
+                "Support on Ko-fi",
+                support::KO_FI_URL
+            ),
             row![
                 link_button("Discord", support::DISCORD_URL),
                 link_button("GitHub", support::REPOSITORY_URL),
@@ -451,4 +451,21 @@ fn link_button(label: &'static str, url: &'static str) -> Element<'static, Messa
         .style(button::text)
         .on_press(Message::OpenLink(url))
         .into()
+}
+
+fn support_button<'a>(
+    icon: Element<'a, Message>,
+    label: &'a str,
+    url: &'static str,
+) -> Element<'a, Message> {
+    button(
+        row![icon, text(label).size(13)]
+            .spacing(10)
+            .align_y(Alignment::Center),
+    )
+    .width(Fill)
+    .padding([8, 12])
+    .style(style::support_button)
+    .on_press(Message::OpenLink(url))
+    .into()
 }

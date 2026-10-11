@@ -75,7 +75,10 @@ pub fn vector(name: &str) -> Json {
 }
 
 pub fn upstream_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../upstream/src/com/dabomstew/pkrandom")
+    std::env::var_os("RANDOMON_UPSTREAM")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/upstream"))
+        .join("src/com/dabomstew/pkrandom")
 }
 
 pub struct Outcome<'a> {

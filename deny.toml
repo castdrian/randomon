@@ -4,6 +4,7 @@ all-features = false
 [advisories]
 version = 2
 yanked = "warn"
+unmaintained = "workspace"
 
 [licenses]
 version = 2
@@ -27,6 +28,7 @@ allow = [
     "0BSD",
     "CDLA-Permissive-2.0",
     "bzip2-1.0.6",
+    "NCSA",
 ]
 
 [bans]

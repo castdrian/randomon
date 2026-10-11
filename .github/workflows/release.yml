@@ -61,7 +61,7 @@ jobs:
         steps:
             - uses: actions/checkout@v7
               with:
-                  submodules: true
+                  fetch-depth: 1
             - uses: dtolnay/rust-toolchain@stable
             - run: scripts/set-version.sh ${{ needs.version.outputs.version }}
             - name: Install dependencies
@@ -74,8 +74,8 @@ jobs:
                   ARCH: ${{ matrix.arch }}
               run: |
                   mkdir -p dist
-                  tar -C target/release -czf "dist/Randomon-$VERSION-linux-$ARCH.tar.gz" randomon randomon-cli
-                  APPDIR=build/Randomon.AppDir
+                  tar -C target/release -czf "dist/randomon-$VERSION-linux-$ARCH.tar.gz" randomon randomon-cli
+                  APPDIR=build/randomon.AppDir
                   mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/icons/hicolor/512x512/apps"
                   cp target/release/randomon target/release/randomon-cli "$APPDIR/usr/bin/"
                   cp package/linux/randomon.desktop "$APPDIR/"
@@ -84,7 +84,7 @@ jobs:
                   ln -s usr/bin/randomon "$APPDIR/AppRun"
                   curl -fsSL -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$ARCH.AppImage"
                   chmod +x appimagetool
-                  ./appimagetool --appimage-extract-and-run "$APPDIR" "dist/Randomon-$VERSION-linux-$ARCH.AppImage"
+                  ./appimagetool --appimage-extract-and-run "$APPDIR" "dist/randomon-$VERSION-linux-$ARCH.AppImage"
             - uses: actions/upload-artifact@v7
               with:
                   name: linux-${{ matrix.arch }}
@@ -106,7 +106,7 @@ jobs:
         steps:
             - uses: actions/checkout@v7
               with:
-                  submodules: true
+                  fetch-depth: 1
             - uses: dtolnay/rust-toolchain@stable
               with:
                   targets: ${{ matrix.target }}
@@ -122,11 +122,11 @@ jobs:
               run: |
                   $bin = "target/${{ matrix.target }}/release"
                   New-Item -ItemType Directory -Force -Path dist, build/nsis | Out-Null
-                  Copy-Item "$bin/randomon.exe" "dist/Randomon-$env:VERSION-windows-${{ matrix.arch }}-portable.exe"
+                  Copy-Item "$bin/randomon.exe" "dist/randomon-$env:VERSION-windows-${{ matrix.arch }}-portable.exe"
                   Copy-Item "$bin/randomon-cli.exe" "dist/randomon-cli-$env:VERSION-windows-${{ matrix.arch }}.exe"
                   Copy-Item package/windows/installer.nsi, assets/icon.ico, "$bin/randomon.exe", "$bin/randomon-cli.exe" build/nsis/
                   & "C:\Program Files (x86)\NSIS\makensis.exe" "/DAPPVERSION=$env:VERSION" build/nsis/installer.nsi
-                  Move-Item build/nsis/installer.exe "dist/Randomon-$env:VERSION-windows-${{ matrix.arch }}-setup.exe"
+                  Move-Item build/nsis/installer.exe "dist/randomon-$env:VERSION-windows-${{ matrix.arch }}-setup.exe"
             - uses: actions/upload-artifact@v7
               with:
                   name: windows-${{ matrix.arch }}
@@ -140,7 +140,7 @@ jobs:
         steps:
             - uses: actions/checkout@v7
               with:
-                  submodules: true
+                  fetch-depth: 1
             - uses: dtolnay/rust-toolchain@stable
               with:
                   targets: aarch64-apple-darwin, x86_64-apple-darwin
@@ -163,7 +163,7 @@ jobs:
                   VERSION: ${{ needs.version.outputs.version }}
                   BUILD_NUMBER: ${{ needs.version.outputs.build-number }}
               run: |
-                  APP=build/Randomon.app
+                  APP=build/randomon.app
                   mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
                   cp build/universal/randomon "$APP/Contents/MacOS/randomon"
                   cp build/universal/randomon-cli "$APP/Contents/MacOS/randomon-cli"
@@ -202,7 +202,7 @@ jobs:
               env:
                   IDENTITY: ${{ steps.cert.outputs.codesign-identity }}
               run: |
-                  APP=build/Randomon.app
+                  APP=build/randomon.app
                   codesign --force --options runtime --timestamp --entitlements package/macos/entitlements.plist --sign "$IDENTITY" "$APP/Contents/MacOS/randomon-cli"
                   codesign --force --options runtime --timestamp --entitlements package/macos/entitlements.plist --sign "$IDENTITY" "$APP"
                   codesign --verify --deep --strict --verbose=2 "$APP"
@@ -212,13 +212,13 @@ jobs:
               run: |
                   trap 'rm -f /tmp/notary_key.p8' EXIT
                   echo "${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}" | base64 --decode > /tmp/notary_key.p8
-                  /usr/bin/ditto -c -k --keepParent build/Randomon.app build/notarize-submit.zip
+                  /usr/bin/ditto -c -k --keepParent build/randomon.app build/notarize-submit.zip
                   xcrun notarytool submit build/notarize-submit.zip \
                     --key /tmp/notary_key.p8 \
                     --key-id "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
                     --issuer "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" \
                     --wait
-                  xcrun stapler staple build/Randomon.app
+                  xcrun stapler staple build/randomon.app
 
             - name: Package DMG and CLI
               env:
@@ -226,10 +226,10 @@ jobs:
                   IDENTITY: ${{ steps.cert.outputs.codesign-identity }}
               run: |
                   mkdir -p dist build/dmg
-                  cp -R build/Randomon.app build/dmg/
+                  cp -R build/randomon.app build/dmg/
                   ln -s /Applications build/dmg/Applications
-                  DMG="dist/Randomon-$VERSION-macos-universal.dmg"
-                  hdiutil create -volname "Randomon" -srcfolder build/dmg -ov -format UDZO "$DMG"
+                  DMG="dist/randomon-$VERSION-macos-universal.dmg"
+                  hdiutil create -volname "randomon" -srcfolder build/dmg -ov -format UDZO "$DMG"
                   codesign --force --timestamp --sign "$IDENTITY" "$DMG"
                   /usr/bin/ditto -c -k build/universal/randomon-cli "dist/randomon-cli-$VERSION-macos-universal.zip"
 
@@ -239,7 +239,7 @@ jobs:
               run: |
                   trap 'rm -f /tmp/notary_key.p8' EXIT
                   echo "${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}" | base64 --decode > /tmp/notary_key.p8
-                  DMG="dist/Randomon-$VERSION-macos-universal.dmg"
+                  DMG="dist/randomon-$VERSION-macos-universal.dmg"
                   xcrun notarytool submit "$DMG" \
                     --key /tmp/notary_key.p8 \
                     --key-id "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \

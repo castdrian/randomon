@@ -418,7 +418,7 @@ fn run_java(
     let classpath = format!(
         "{}:{}",
         classes.display(),
-        root.join("upstream/src").display()
+        upstream_root(root).join("src").display()
     );
     let heap = format!(
         "-Xmx{}",
@@ -566,4 +566,10 @@ fn read_full(reader: &mut impl Read, buffer: &mut [u8]) -> usize {
         }
     }
     filled
+}
+
+fn upstream_root(root: &std::path::Path) -> std::path::PathBuf {
+    std::env::var_os("RANDOMON_UPSTREAM")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| root.join("target/upstream"))
 }

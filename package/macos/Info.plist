@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Randomon</string>
+    <string>randomon</string>
     <key>CFBundleDisplayName</key>
-    <string>Randomon</string>
+    <string>randomon</string>
     <key>CFBundleIdentifier</key>
     <string>dev.adrian.randomon</string>
     <key>CFBundleExecutable</key>
