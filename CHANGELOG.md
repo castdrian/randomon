@@ -1,3 +1,9 @@
+## [1.1.1](https://github.com/castdrian/randomon/compare/v1.1.0...v1.1.1) (2026-10-11)
+
+### Bug Fixes
+
+* **app:** keep the Open game button visible and use neutral open wording ([8a42b5f](https://github.com/castdrian/randomon/commit/8a42b5fbc6b7e65f26a694598a9b358c71b4f8ed))
+
 ## [1.1.0](https://github.com/castdrian/randomon/compare/v1.0.0...v1.1.0) (2026-10-11)
 
 ### Features

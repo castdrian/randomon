@@ -3226,7 +3226,7 @@ dependencies = [
 
 [[package]]
 name = "randomon"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "dispatch2",
  "env_logger",
@@ -3257,7 +3257,7 @@ dependencies = [
 
 [[package]]
 name = "randomon-cli"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "clap",
  "randomon_bdsp",
@@ -3276,7 +3276,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_bdsp"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "base64",
  "randomon_python_random",
@@ -3286,7 +3286,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_core"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "randomon_data",
  "randomon_java",
@@ -3297,7 +3297,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_ctr"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "randomon_core",
  "randomon_data",
@@ -3308,7 +3308,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_data"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "randomon_java",
  "randomon_settings",
@@ -3316,7 +3316,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_formats"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "crc32fast",
  "thiserror 2.0.21",
@@ -3324,7 +3324,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_fuzz"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "randomon_core",
  "randomon_data",
@@ -3339,7 +3339,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_gb"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "crc32fast",
  "randomon_data",
@@ -3348,7 +3348,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_gen1"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "randomon_core",
  "randomon_data",
@@ -3360,7 +3360,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_gen2"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "randomon_core",
  "randomon_data",
@@ -3372,7 +3372,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_gen3"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "randomon_core",
  "randomon_data",
@@ -3386,7 +3386,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_gen4"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "log",
  "randomon_core",
@@ -3400,7 +3400,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_gen5"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "randomon_core",
  "randomon_data",
@@ -3413,7 +3413,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_gen6"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "randomon_core",
  "randomon_ctr",
@@ -3426,7 +3426,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_gen7"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "randomon_core",
  "randomon_ctr",
@@ -3439,7 +3439,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_java"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "getrandom 0.3.4",
  "serde_json",
@@ -3447,14 +3447,14 @@ dependencies = [
 
 [[package]]
 name = "randomon_log"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "randomon_java",
 ]
 
 [[package]]
 name = "randomon_nds"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "randomon_core",
  "randomon_data",
@@ -3464,7 +3464,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_python_random"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "serde_json",
  "thiserror 2.0.21",
@@ -3472,7 +3472,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_settings"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "base64",
  "crc32fast",
@@ -3481,7 +3481,7 @@ dependencies = [
 
 [[package]]
 name = "randomon_unity"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "lz4_flex",
  "lzma-rs",
