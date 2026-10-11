@@ -26,6 +26,9 @@ randomon_java.workspace = true
 randomon_bdsp.workspace = true
 tokio = { version = "1", features = ["rt"] }
 
+[dev-dependencies]
+randomon_ctr.workspace = true
+
 [lints]
 workspace = true
 

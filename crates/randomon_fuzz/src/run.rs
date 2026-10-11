@@ -154,9 +154,11 @@ fn run_one(registry: &HandlerRegistry, target: &Target, case: u64, seed_index: u
         }
     };
     let streamed = target.rom_bytes.is_none();
+    let full_image = full_image_path(target, case, seed_index);
     let options = RandomizationOptions {
         file_name: target.rom.to_string_lossy().into_owned(),
-        save_as_directory: streamed,
+        save_as_directory: streamed && full_image.is_none(),
+        output_path: full_image.clone(),
         ..RandomizationOptions::default()
     };
     let output = match randomize_with_handler(handler.as_mut(), &source, &settings, seed, &options)
@@ -190,9 +192,38 @@ fn run_one(registry: &HandlerRegistry, target: &Target, case: u64, seed_index: u
                 result.problems.push("LayeredFS output is empty".to_owned());
             }
         }
-        RomOutput::Written(_) => {}
+        RomOutput::Written(path) => {
+            let reload_source = RandomSource::with_seed(0).into_shared();
+            match registry.load_file(path, &options.file_name, &reload_source) {
+                Ok(reloaded) => result.problems.extend(
+                    validate(reloaded.as_ref(), &effective, &baseline)
+                        .into_iter()
+                        .map(|p| format!("reloaded image: {p}")),
+                ),
+                Err(error) => result.problems.push(format!("reload image: {error}")),
+            }
+        }
+    }
+    if let Some(path) = &full_image {
+        let _ = std::fs::remove_file(path);
     }
     result
+}
+
+fn full_image_path(target: &Target, case: u64, seed_index: u64) -> Option<PathBuf> {
+    if target.rom_bytes.is_some() || target.update.is_some() || seed_index != 0 {
+        return None;
+    }
+    let every: u64 = std::env::var("RANDOMON_FUZZ_FULL_IMAGE_EVERY")
+        .ok()
+        .and_then(|text| text.parse().ok())
+        .filter(|&every| every > 0)?;
+    (case % every == 0).then(|| {
+        let directory = std::env::var_os("RANDOMON_FUZZ_SCRATCH")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
+        directory.join(format!("randomon-fuzz-{case}.cxi"))
+    })
 }
 
 pub struct FuzzPlan {
