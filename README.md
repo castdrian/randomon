@@ -75,7 +75,7 @@ The `upstream` submodule pins the UPR ZX source that Randomon is checked against
 
 ## Credits
 
-Randomon is a Rust port of [Universal Pokemon Randomizer ZX](https://github.com/Ajarmar/universal-pokemon-randomizer-zx) by Ajarmar, with significant contributions from darkeye and cleartonic. That project is based on the Universal Pokemon Randomizer by Dabomstew. Pokémon and all related names are trademarks of Nintendo, Creatures and Game Freak. Randomon ships no game data. Bring your own legally dumped games.
+Randomon is a Rust port of [Universal Pokemon Randomizer ZX](https://github.com/Ajarmar/universal-pokemon-randomizer-zx) by Ajarmar, with significant contributions from darkeye and cleartonic. That project is based on the Universal Pokemon Randomizer by Dabomstew. Brilliant Diamond and Shining Pearl support is derived from [BDSP-Randomizers](https://github.com/Ai0796/BDSP-Randomizers) by Aldo796, Copycat, SanGawku, XLuma and Red (MIT), including its exefs starter offsets and the species name, category, body size and run speed tables in `crates/randomon_bdsp/assets`. Pokémon and all related names are trademarks of Nintendo, Creatures and Game Freak. Randomon ships no game data. Bring your own legally dumped games.
 
 ## License
 
