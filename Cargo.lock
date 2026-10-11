@@ -3198,6 +3198,7 @@ dependencies = [
  "open",
  "randomon_core",
  "randomon_gen1",
+ "randomon_gen5",
  "randomon_java",
  "randomon_settings",
  "rfd",
@@ -3212,6 +3213,7 @@ dependencies = [
  "clap",
  "randomon_core",
  "randomon_gen1",
+ "randomon_gen5",
  "randomon_java",
  "randomon_settings",
 ]
@@ -3256,6 +3258,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "randomon_gen5"
+version = "0.1.0"
+dependencies = [
+ "randomon_core",
+ "randomon_data",
+ "randomon_formats",
+ "randomon_java",
+ "randomon_log",
+ "randomon_nds",
+ "randomon_settings",
+]
+
+[[package]]
 name = "randomon_java"
 version = "0.1.0"
 dependencies = [
@@ -3268,6 +3283,16 @@ name = "randomon_log"
 version = "0.1.0"
 dependencies = [
  "randomon_java",
+]
+
+[[package]]
+name = "randomon_nds"
+version = "0.1.0"
+dependencies = [
+ "randomon_core",
+ "randomon_data",
+ "randomon_formats",
+ "randomon_log",
 ]
 
 [[package]]

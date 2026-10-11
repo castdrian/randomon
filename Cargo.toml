@@ -10,6 +10,8 @@ members = [
     "crates/randomon_core",
     "crates/randomon_log",
     "crates/randomon_gen1",
+    "crates/randomon_nds",
+    "crates/randomon_gen5",
 ]
 default-members = ["apps/randomon"]
 
@@ -29,6 +31,8 @@ randomon_settings = { path = "crates/randomon_settings" }
 randomon_core = { path = "crates/randomon_core" }
 randomon_log = { path = "crates/randomon_log" }
 randomon_gen1 = { path = "crates/randomon_gen1" }
+randomon_nds = { path = "crates/randomon_nds" }
+randomon_gen5 = { path = "crates/randomon_gen5" }
 thiserror = "2.0"
 base64 = "0.22"
 crc32fast = "1.5"
