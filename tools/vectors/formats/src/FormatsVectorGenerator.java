@@ -39,6 +39,8 @@ public final class FormatsVectorGenerator {
         write(log, outputDirectory, "bflim", MiscVectors::bflim);
         write(log, outputDirectory, "narc", MiscVectors::narc);
         write(log, outputDirectory, "garc", GarcVectors::vectors);
+        write(log, outputDirectory, "poketext", PokeTextVectors::vectors);
+        write(log, outputDirectory, "pptxt", PpTxtVectors::vectors);
         write(log, outputDirectory, "nds_rom", () -> NdsVectors.vectors(workDirectory));
         write(log, outputDirectory, "ncch", () -> NcchVectors.vectors(workDirectory));
         log.println("done");

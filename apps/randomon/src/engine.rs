@@ -3,12 +3,13 @@ use std::sync::{Arc, OnceLock};
 
 use randomon_core::{HandlerRegistry, RandomizationOptions, RomHandler, RomOutput};
 use randomon_gen1::Gen1Factory;
+use randomon_gen5::Gen5Factory;
 use randomon_java::RandomSource;
 use randomon_settings::Settings;
 
 use crate::capabilities::Capabilities;
 
-const LARGEST_INSPECTED_ROM: u64 = 64 * 1024 * 1024;
+const LARGEST_INSPECTED_ROM: u64 = 512 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct EngineGame {
@@ -30,7 +31,7 @@ pub struct RandomizedGame {
 
 pub fn registry() -> &'static HandlerRegistry {
     static REGISTRY: OnceLock<HandlerRegistry> = OnceLock::new();
-    REGISTRY.get_or_init(|| HandlerRegistry::new().with(Gen1Factory))
+    REGISTRY.get_or_init(|| HandlerRegistry::new().with(Gen1Factory).with(Gen5Factory))
 }
 
 pub fn inspect(path: &Path, size_bytes: u64) -> Option<EngineGame> {
