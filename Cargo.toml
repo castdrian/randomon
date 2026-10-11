@@ -19,7 +19,6 @@ members = [
     "crates/randomon_ctr",
     "crates/randomon_gen6",
     "crates/randomon_gen7",
-    "crates/randomon_python_random",
     "crates/randomon_unity",
     "crates/randomon_bdsp",
     "crates/randomon_fuzz",
@@ -51,7 +50,6 @@ randomon_gen5 = { path = "crates/randomon_gen5" }
 randomon_ctr = { path = "crates/randomon_ctr" }
 randomon_gen6 = { path = "crates/randomon_gen6" }
 randomon_gen7 = { path = "crates/randomon_gen7" }
-randomon_python_random = { path = "crates/randomon_python_random" }
 randomon_unity = { path = "crates/randomon_unity" }
 randomon_bdsp = { path = "crates/randomon_bdsp" }
 thiserror = "2.0"
@@ -82,3 +80,6 @@ codegen-units = 16
 
 [profile.dev.package.randomon_formats]
 opt-level = 3
+
+[patch.crates-io]
+block = { path = "3rdparty/block" }
