@@ -16,9 +16,13 @@ const COMPACT_ACTION_BAR_WIDTH: f32 = 1180.0;
 
 impl Randomon {
     pub(super) fn view(&self) -> Element<'_, Message> {
-        let content = column![self.rom_card(), self.section_body(), self.action_bar()]
-            .width(Fill)
-            .height(Fill);
+        let content: Element<'_, Message> = match &self.bdsp {
+            Some(session) => session.view().map(Message::Bdsp),
+            None => column![self.rom_card(), self.section_body(), self.action_bar()]
+                .width(Fill)
+                .height(Fill)
+                .into(),
+        };
         let base: Element<'_, Message> = row![self.sidebar(), content].height(Fill).into();
         match &self.dialog {
             Some(dialog) => stack![
@@ -52,7 +56,7 @@ impl Randomon {
 
     fn sidebar(&self) -> Element<'_, Message> {
         let brand = column![
-            text("Randomon").size(22).font(SEMIBOLD),
+            text("randomon").size(22).font(SEMIBOLD),
             text(format!("v{}", env!("CARGO_PKG_VERSION")))
                 .size(12)
                 .style(style::muted_text),
@@ -113,7 +117,7 @@ impl Randomon {
         .on_press(Message::OpenCustomNames);
 
         let support_links = column![
-            text("Enjoying Randomon?").size(12).style(style::muted_text),
+            text("Enjoying randomon?").size(12).style(style::muted_text),
             button(text("♥  Sponsor on GitHub").size(13))
                 .width(Fill)
                 .padding([8, 12])
@@ -189,7 +193,11 @@ impl Randomon {
             button(text("Open ROM"))
                 .padding([8, 16])
                 .style(style::primary_button)
-                .on_press(Message::OpenRom)
+                .on_press(Message::OpenRom),
+            button(text("Open BDSP romfs"))
+                .padding([8, 16])
+                .style(style::secondary_button)
+                .on_press(Message::OpenBdspRomfs)
         ]
         .spacing(SPACE_1)
         .align_y(Alignment::Center);

@@ -1,0 +1,16 @@
+[package]
+name = "randomon_bdsp"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+randomon_python_random.workspace = true
+randomon_unity.workspace = true
+thiserror.workspace = true
+base64.workspace = true
+
+[lints]
+workspace = true

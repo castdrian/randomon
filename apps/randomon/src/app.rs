@@ -28,7 +28,7 @@ const INITIAL_WINDOW_WIDTH: f32 = 1240.0;
 
 pub fn run() -> iced::Result {
     iced::application(Randomon::boot, Randomon::update, Randomon::view)
-        .title("Randomon")
+        .title("randomon")
         .theme(Randomon::theme)
         .subscription(Randomon::subscription)
         .window(window_settings())
@@ -54,6 +54,7 @@ struct Randomon {
     custom_names: CustomNames,
     status: Option<Status>,
     randomizing: bool,
+    bdsp: Option<crate::bdsp::BdspSession>,
 }
 
 #[derive(Debug, Clone)]
@@ -92,6 +93,8 @@ enum Message {
     OutputChosen(Option<PathBuf>),
     Randomized(Result<engine::RandomizedGame, String>),
     OpenLink(&'static str),
+    OpenBdspRomfs,
+    Bdsp(crate::bdsp::BdspMessage),
 }
 
 impl Randomon {
@@ -115,6 +118,7 @@ impl Randomon {
             custom_names: CustomNames::default_names(),
             status: None,
             randomizing: false,
+            bdsp: None,
         };
         state.settings_changed();
         state
@@ -264,6 +268,13 @@ impl Randomon {
                 });
             }
             Message::OpenLink(url) => support::open_link(url),
+            Message::OpenBdspRomfs => return Task::perform(pick_romfs(), Message::RomPicked),
+            Message::Bdsp(crate::bdsp::BdspMessage::Close) => self.bdsp = None,
+            Message::Bdsp(message) => {
+                if let Some(session) = &mut self.bdsp {
+                    return session.update(message).map(Message::Bdsp);
+                }
+            }
         }
         Task::none()
     }
@@ -353,6 +364,16 @@ impl Randomon {
     }
 
     fn load_rom(&mut self, path: PathBuf) {
+        if crate::bdsp::is_bdsp_romfs(&path) {
+            self.bdsp = Some(crate::bdsp::BdspSession::open(path));
+            return;
+        }
+        if path.is_dir() {
+            self.status = Some(Status::Error(
+                "That folder isn't a Brilliant Diamond or Shining Pearl romfs.".to_owned(),
+            ));
+            return;
+        }
         match rom::inspect(path) {
             Ok(loaded) => {
                 self.status = Some(Status::Info(format!("Loaded {}", loaded.file_name)));
@@ -473,6 +494,14 @@ async fn pick_rom() -> Option<PathBuf> {
         .set_title("Open a Pokémon ROM")
         .add_filter("Pokémon ROMs", rom::SUPPORTED_EXTENSIONS)
         .pick_file()
+        .await
+        .map(|handle| handle.path().to_path_buf())
+}
+
+async fn pick_romfs() -> Option<PathBuf> {
+    rfd::AsyncFileDialog::new()
+        .set_title("Open a Brilliant Diamond or Shining Pearl romfs folder")
+        .pick_folder()
         .await
         .map(|handle| handle.path().to_path_buf())
 }

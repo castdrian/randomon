@@ -1,0 +1,15 @@
+[package]
+name = "randomon_unity"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+lz4_flex = { version = "0.14", default-features = false, features = ["std", "safe-encode", "safe-decode"] }
+lzma-rs = "0.3"
+
+[lints]
+workspace = true

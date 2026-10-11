@@ -19,6 +19,7 @@ randomon_settings.workspace = true
 randomon_core.workspace = true
 randomon_gen1.workspace = true
 randomon_java.workspace = true
+randomon_bdsp.workspace = true
 tokio = { version = "1", features = ["rt"] }
 
 [lints]
