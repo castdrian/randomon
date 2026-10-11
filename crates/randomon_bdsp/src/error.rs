@@ -18,12 +18,6 @@ pub enum BdspError {
     Settings(#[from] crate::settings::SettingsError),
 }
 
-impl From<randomon_python_random::PythonError> for BdspError {
-    fn from(error: randomon_python_random::PythonError) -> Self {
-        BdspError::Data(error.to_string())
-    }
-}
-
 pub type Result<T> = std::result::Result<T, BdspError>;
 
 pub fn data_error(message: impl Into<String>) -> BdspError {

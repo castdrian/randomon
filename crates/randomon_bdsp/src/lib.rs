@@ -7,11 +7,10 @@ mod exefs;
 mod log;
 mod output;
 mod randomizers;
+mod rng;
 mod settings;
 
 use std::path::Path;
-
-use randomon_python_random::PythonRandom;
 
 pub use assets::{BundleId, path_ids};
 pub use bundles::{Bundles, data_directory, looks_like_bdsp_romfs};
@@ -69,7 +68,7 @@ pub fn randomize_bundles(
     settings.validate()?;
     let data = GameData::load(&bundles)?;
     let mut context = Context {
-        rng: PythonRandom::from_u128(u128::from(seed)),
+        rng: rng::SeededRng::from_seed(seed),
         data,
         bundles,
         settings,

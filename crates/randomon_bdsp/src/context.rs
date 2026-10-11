@@ -1,13 +1,12 @@
-use randomon_python_random::PythonRandom;
-
 use crate::bundles::Bundles;
 use crate::data::GameData;
 use crate::error::{BdspError, Result};
 use crate::log::SpoilerLog;
+use crate::rng::SeededRng;
 use crate::settings::BdspSettings;
 
 pub struct Context<'a> {
-    pub rng: PythonRandom,
+    pub rng: SeededRng,
     pub data: GameData,
     pub bundles: Bundles,
     pub settings: &'a BdspSettings,
@@ -23,7 +22,7 @@ impl Context<'_> {
         self.rng
             .choice(pool)
             .copied()
-            .map_err(|_| BdspError::EmptyPool(what.to_owned()))
+            .ok_or_else(|| BdspError::EmptyPool(what.to_owned()))
     }
 
     pub fn chance(&mut self, probability: f64) -> bool {
