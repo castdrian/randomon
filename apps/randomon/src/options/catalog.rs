@@ -658,7 +658,7 @@ const TRAINERS: &[Row] = &[
     ),
     Row::Item(
         toggle!("tpBetterMovesetsCheckBox", better_trainer_movesets)
-            .shown_when(v::generation_3_plus)
+            .shown_when(v::trainer_movesets)
             .enabled_when(r::better_trainer_movesets),
     ),
     Row::Item(
@@ -703,7 +703,10 @@ const TRAINERS: &[Row] = &[
         .shown_when(v::generation_3_plus)
         .enabled_when(r::trainers_randomized),
     ),
-    Row::caption_when("GUI.tpAddMorePokemonForLabel.text", v::generation_3_plus),
+    Row::caption_when(
+        "GUI.tpAddMorePokemonForLabel.text",
+        v::additional_trainer_pokemon,
+    ),
     Row::Item(
         counted_toggle!(
             "tpBossTrainersCheckBox",
@@ -711,7 +714,7 @@ const TRAINERS: &[Row] = &[
             additional_boss_trainer_pokemon,
             5
         )
-        .shown_when(v::generation_3_plus)
+        .shown_when(v::additional_trainer_pokemon)
         .enabled_when(r::trainers_randomized)
         .nested(),
     ),
@@ -722,7 +725,7 @@ const TRAINERS: &[Row] = &[
             additional_important_trainer_pokemon,
             5
         )
-        .shown_when(v::generation_3_plus)
+        .shown_when(v::additional_trainer_pokemon)
         .enabled_when(r::trainers_randomized)
         .nested(),
     ),
@@ -733,17 +736,17 @@ const TRAINERS: &[Row] = &[
             additional_regular_trainer_pokemon,
             5
         )
-        .shown_when(v::generation_3_plus)
+        .shown_when(v::additional_trainer_pokemon)
         .enabled_when(r::trainers_randomized)
         .nested(),
     ),
-    Row::caption_when("GUI.tpHeldItemsLabel.text", v::generation_3_plus),
+    Row::caption_when("GUI.tpHeldItemsLabel.text", v::trainer_held_items),
     Row::Item(
         toggle!(
             "tpBossTrainersItemsCheckBox",
             randomize_held_items_for_boss_trainer_pokemon
         )
-        .shown_when(v::generation_3_plus)
+        .shown_when(v::trainer_held_items)
         .enabled_when(r::trainers_randomized)
         .nested(),
     ),
@@ -752,7 +755,7 @@ const TRAINERS: &[Row] = &[
             "tpImportantTrainersItemsCheckBox",
             randomize_held_items_for_important_trainer_pokemon
         )
-        .shown_when(v::generation_3_plus)
+        .shown_when(v::trainer_held_items)
         .enabled_when(r::trainers_randomized)
         .nested(),
     ),
@@ -761,7 +764,7 @@ const TRAINERS: &[Row] = &[
             "tpRegularTrainersItemsCheckBox",
             randomize_held_items_for_regular_trainer_pokemon
         )
-        .shown_when(v::generation_3_plus)
+        .shown_when(v::trainer_held_items)
         .enabled_when(r::trainers_randomized)
         .nested(),
     ),
@@ -771,7 +774,7 @@ const TRAINERS: &[Row] = &[
             "GUI.tpConsumableItemsOnlyCheckBox.tooltip",
             consumable_items_only_for_trainer_pokemon
         )
-        .shown_when(v::generation_3_plus)
+        .shown_when(v::trainer_held_items)
         .enabled_when(r::trainer_held_items_chosen)
         .nested(),
     ),
@@ -781,7 +784,7 @@ const TRAINERS: &[Row] = &[
             "GUI.tpSensibleItemsCheckBox.tooltip",
             sensible_items_only_for_trainer_pokemon
         )
-        .shown_when(v::generation_3_plus)
+        .shown_when(v::trainer_held_items)
         .enabled_when(r::trainer_held_items_chosen)
         .nested(),
     ),
@@ -791,7 +794,7 @@ const TRAINERS: &[Row] = &[
             "GUI.tpHighestLevelGetsItemCheckBox.tooltip",
             highest_level_only_gets_items_for_trainer_pokemon
         )
-        .shown_when(v::generation_3_plus)
+        .shown_when(v::trainer_held_items)
         .enabled_when(r::trainer_held_items_chosen)
         .nested(),
     ),

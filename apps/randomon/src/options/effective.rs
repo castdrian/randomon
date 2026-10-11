@@ -46,8 +46,11 @@ fn hide_unavailable(s: &mut Settings, caps: &Capabilities) {
 
 fn hide_unavailable_trainer_options(s: &mut Settings, caps: &Capabilities) {
     let later_generation = v::generation_3_plus(caps);
+    let held_items = v::trainer_held_items(caps);
     if !later_generation {
         s.elite_four_unique_pokemon_number = 0;
+    }
+    if !v::additional_trainer_pokemon(caps) {
         s.additional_boss_trainer_pokemon = 0;
         s.additional_important_trainer_pokemon = 0;
         s.additional_regular_trainer_pokemon = 0;
@@ -56,13 +59,13 @@ fn hide_unavailable_trainer_options(s: &mut Settings, caps: &Capabilities) {
     s.swap_trainer_mega_evos &= v::mega_evolutions(caps);
     s.double_battle_mode &= later_generation;
     s.shiny_chance &= v::generation_7_plus(caps);
-    s.better_trainer_movesets &= later_generation;
-    s.randomize_held_items_for_boss_trainer_pokemon &= later_generation;
-    s.randomize_held_items_for_important_trainer_pokemon &= later_generation;
-    s.randomize_held_items_for_regular_trainer_pokemon &= later_generation;
-    s.consumable_items_only_for_trainer_pokemon &= later_generation;
-    s.sensible_items_only_for_trainer_pokemon &= later_generation;
-    s.highest_level_only_gets_items_for_trainer_pokemon &= later_generation;
+    s.better_trainer_movesets &= v::trainer_movesets(caps);
+    s.randomize_held_items_for_boss_trainer_pokemon &= held_items;
+    s.randomize_held_items_for_important_trainer_pokemon &= held_items;
+    s.randomize_held_items_for_regular_trainer_pokemon &= held_items;
+    s.consumable_items_only_for_trainer_pokemon &= held_items;
+    s.sensible_items_only_for_trainer_pokemon &= held_items;
+    s.highest_level_only_gets_items_for_trainer_pokemon &= held_items;
 }
 
 #[cfg(test)]

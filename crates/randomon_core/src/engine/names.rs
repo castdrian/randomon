@@ -65,7 +65,7 @@ pub fn randomize_trainer_names<H: RomHandler + ?Sized>(
     let mut success = false;
     let mut tries = 0;
     let mut new_names: Vec<String> = Vec::new();
-    while !success && tries < 10_000 {
+    while !success && tries < 1_000 {
         success = true;
         let mut translation: HashMap<String, String> = HashMap::new();
         new_names.clear();
@@ -131,12 +131,9 @@ pub fn randomize_trainer_names<H: RomHandler + ?Sized>(
             }
         }
     }
-    if !success {
-        return Err(RandomizationError::randomization(
-            "Could not randomize trainer names in a reasonable amount of attempts.\nPlease add some shorter names to your custom trainer names.",
-        ));
+    if success {
+        handler.set_trainer_names(&new_names);
     }
-    handler.set_trainer_names(&new_names);
     Ok(())
 }
 
@@ -172,12 +169,15 @@ pub fn randomize_trainer_class_names<H: RomHandler + ?Sized>(
             Some(&pool.all)
         };
         let mut change_to = name.clone();
-        if let Some(pick_from) = pick_from.filter(|list| !list.is_empty()) {
-            change_to = pick_from[random.next_int_bounded(pick_from.len() as i32) as usize].clone();
-            while utf16_length(&change_to) as i64 > i64::from(max_length) {
-                change_to =
-                    pick_from[random.next_int_bounded(pick_from.len() as i32) as usize].clone();
-            }
+        let fitting: Vec<&String> = pick_from
+            .map(|list| {
+                list.iter()
+                    .filter(|candidate| utf16_length(candidate) as i64 <= i64::from(max_length))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !fitting.is_empty() {
+            change_to = fitting[random.next_int_bounded(fitting.len() as i32) as usize].clone();
         }
         translation.insert(name.clone(), change_to.clone());
         new_names.push(change_to);

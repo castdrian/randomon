@@ -3,6 +3,7 @@ pub mod constants;
 mod encounters;
 mod field;
 mod handler;
+mod held_items;
 pub mod items;
 mod learnsets;
 mod maps;

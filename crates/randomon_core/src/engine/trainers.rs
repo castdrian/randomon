@@ -61,18 +61,30 @@ pub fn set_forme_for_trainer_pokemon<H: RomHandler + ?Sized>(
 }
 
 pub fn random_ability_slot<H: RomHandler + ?Sized>(handler: &H, pokemon: PokemonId) -> i32 {
-    let per_pokemon = handler.abilities_per_pokemon();
+    random_ability_slot_excluding(handler, pokemon, &[])
+}
+
+fn random_ability_slot_excluding<H: RomHandler + ?Sized>(
+    handler: &H,
+    pokemon: PokemonId,
+    excluded: &[i32],
+) -> i32 {
+    let per_pokemon = handler.abilities_per_pokemon().clamp(0, 3);
     if per_pokemon == 0 {
         return 0;
     }
     let pk = handler.core().data.pk(pokemon);
-    let slots = [pk.ability1, pk.ability2, pk.ability3];
+    let abilities = [pk.ability1, pk.ability2, pk.ability3];
+    let filled: Vec<i32> = (1..=per_pokemon)
+        .filter(|&slot| abilities[(slot - 1) as usize] != 0)
+        .collect();
+    let allowed: Vec<i32> = filled
+        .iter()
+        .copied()
+        .filter(|slot| !excluded.contains(slot))
+        .collect();
     let mut random = handler.core().engine.random.clone();
-    let mut slot = random.next_int_bounded(per_pokemon);
-    while slots[slot as usize] == 0 {
-        slot = random.next_int_bounded(per_pokemon);
-    }
-    slot + 1
+    pick(&mut random, &first_non_empty(&[&allowed, &filled, &[1]])).unwrap_or(1)
 }
 
 pub fn valid_ability_slot_from_original<H: RomHandler + ?Sized>(
@@ -736,13 +748,18 @@ pub fn randomize_trainer_held_items<H: RomHandler + ?Sized>(
                 let moveset = moveset_for_items(handler, &trainer.pokemon[slot], &movesets)?;
                 randomize_held_item(handler, &mut trainer.pokemon[slot], settings, &moveset)?;
                 if trainer.requires_unique_held_items {
-                    while !trainer.pokemon_have_unique_held_items() {
+                    let mut attempts = 0;
+                    while !trainer.pokemon_have_unique_held_items() && attempts < 100 {
                         randomize_held_item(
                             handler,
                             &mut trainer.pokemon[slot],
                             settings,
                             &moveset,
                         )?;
+                        attempts += 1;
+                    }
+                    if !trainer.pokemon_have_unique_held_items() {
+                        trainer.pokemon[slot].held_item = 0;
                     }
                 }
             }
@@ -762,13 +779,10 @@ fn pick_random_evolution_of<H: RomHandler + ?Sized>(
         .into_iter()
         .filter(|&target| !must_evolve_itself || !data.evolutions_from(target).is_empty())
         .collect();
-    if candidates.is_empty() {
-        return Err(RandomizationError::randomization(
-            "Random evolution called on a Pokemon without any usable evolutions.",
-        ));
-    }
+    let targets = data.evolution_targets(base);
+    let choices = first_non_empty(&[&candidates, &targets, &[base]]);
     let mut random = handler.core().engine.random.clone();
-    pick(&mut random, &candidates)
+    pick(&mut random, &choices)
 }
 
 fn level_of_starter(trainers: &[Trainer], tag: &str) -> i32 {
@@ -954,10 +968,7 @@ fn rival_carries_starter_update<H: RomHandler + ?Sized>(
         };
         let mut this_starter = this_starter;
         let times_evolves = num_evolutions(&handler.core().data, this_starter, 2);
-        let mut ability_slot = random_ability_slot(handler, this_starter);
-        while ability_slot == 3 {
-            ability_slot = random_ability_slot(handler, this_starter);
-        }
+        let ability_slot = random_ability_slot_excluding(handler, this_starter, &[3]);
         let tag = |j: i32| format!("{prefix}{j}-{i}");
         if times_evolves == 0 {
             for j in 1..=highest {
