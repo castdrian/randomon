@@ -20,6 +20,7 @@ members = [
     "crates/randomon_python_random",
     "crates/randomon_unity",
     "crates/randomon_bdsp",
+    "crates/randomon_fuzz",
 ]
 default-members = ["apps/randomon"]
 
