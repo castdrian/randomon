@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use randomon_data::{
     EncounterSet, IngameTrade, ItemList, MegaEvolutionId, MoveLearnt, PickupItem, PokemonId, Shop,
@@ -33,8 +34,22 @@ pub trait RomHandler {
     fn core_mut(&mut self) -> &mut HandlerCore;
 
     fn save_rom(&mut self) -> Result<Vec<u8>>;
+    fn save_rom_with_seed(&mut self, _seed: i64) -> Result<Vec<u8>> {
+        self.save_rom()
+    }
+    fn save_rom_to_path(&mut self, path: &Path, seed: i64) -> Result<()> {
+        let bytes = self.save_rom_with_seed(seed)?;
+        std::fs::write(path, bytes).map_err(|error| {
+            crate::error::RandomizationError::Io(format!("{}: {error}", path.display()))
+        })
+    }
     fn save_rom_directory(&mut self) -> Result<Vec<OutputFile>> {
         Ok(Vec::new())
+    }
+    fn load_game_update(&mut self, path: &Path) -> Result<()> {
+        Err(crate::error::RandomizationError::UnsupportedRom(
+            path.display().to_string(),
+        ))
     }
     fn loaded_filename(&self) -> &str;
     fn has_game_update_loaded(&self) -> bool {

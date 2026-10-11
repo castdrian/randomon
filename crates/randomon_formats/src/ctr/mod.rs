@@ -6,6 +6,7 @@ pub mod mini;
 pub mod ncch;
 pub mod romfs;
 pub mod smdh;
+pub mod text;
 
 pub use amx::Amx;
 pub use bflim::Bflim;

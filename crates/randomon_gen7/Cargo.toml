@@ -1,0 +1,19 @@
+[package]
+name = "randomon_gen7"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+randomon_java.workspace = true
+randomon_formats.workspace = true
+randomon_data.workspace = true
+randomon_settings.workspace = true
+randomon_log.workspace = true
+randomon_core.workspace = true
+randomon_ctr.workspace = true
+
+[lints]
+workspace = true
