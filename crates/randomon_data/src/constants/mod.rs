@@ -2,6 +2,8 @@ pub mod abilities;
 pub mod gb;
 pub mod gen1;
 pub mod gen1_items;
+pub mod gen4;
+pub mod gen5;
 pub mod global;
 pub mod items;
 pub mod moves;
