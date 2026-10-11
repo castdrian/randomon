@@ -29,6 +29,8 @@ use crate::moves::{
 use crate::rom_entry::{RomEntry, rom_entries};
 use randomon_gb::crc32;
 
+mod bank;
+
 pub struct Gen1RomHandler {
     core: HandlerCore,
     rom: Vec<u8>,
@@ -48,6 +50,9 @@ pub struct Gen1RomHandler {
     actual_crc32: i64,
     effectiveness_updated: bool,
     allowed_items: ItemList,
+    trainer_layout: bank::TrainerLayout,
+    pinned_slots: Vec<bank::PinnedSlot>,
+    relocated_offsets: std::collections::HashMap<i32, i32>,
 }
 
 pub fn check_rom_entry(rom: &[u8]) -> Option<&'static RomEntry> {
@@ -113,16 +118,52 @@ impl Gen1RomHandler {
             x_acc_nerfed: false,
             effectiveness_updated: false,
             allowed_items: gen1::allowed_items(),
+            trainer_layout: bank::TrainerLayout::default(),
+            pinned_slots: Vec::new(),
+            relocated_offsets: std::collections::HashMap::new(),
         };
         handler.load_pokedex_order();
         handler.load_pokemon_stats()?;
         handler.load_moves();
         handler.load_item_names();
+        handler.trainer_layout = bank::measure_trainer_layout(
+            &handler.rom,
+            handler.value("TrainerDataTableOffset"),
+            handler.entry.array("TrainerDataClassCounts"),
+        );
+        handler.pinned_slots = handler
+            .trainer_layout
+            .pin(handler.offsets_into_trainer_data());
         Ok(handler)
     }
 
     fn value(&self, key: &str) -> i32 {
         self.entry.value(key)
+    }
+
+    fn offsets_into_trainer_data(&self) -> Vec<i32> {
+        let starters = ["StarterOffsets1", "StarterOffsets2", "StarterOffsets3"]
+            .into_iter()
+            .flat_map(|key| self.entry.array(key).to_vec());
+        let statics = self
+            .entry
+            .static_pokemon
+            .iter()
+            .flat_map(|entry| entry.species_offsets.clone());
+        starters.chain(statics).collect()
+    }
+
+    fn starter_offsets(&self, slot: usize) -> Vec<i32> {
+        self.entry
+            .array(&format!("StarterOffsets{}", slot + 1))
+            .iter()
+            .map(|&offset| self.resolve_offset(offset))
+            .collect()
+    }
+
+    fn starter_at(&self, slot: usize) -> PokemonId {
+        let offset = self.starter_offsets(slot).first().copied().unwrap_or(0);
+        self.pokemon_by_internal(self.byte(offset))
     }
 
     fn byte(&self, offset: i32) -> u8 {
@@ -479,7 +520,9 @@ impl Gen1RomHandler {
             self.value("MewStatsOffset")
         };
         self.save_basic_stats(PokemonId::from_index(species::MEW as usize), mew_offset);
-        self.write_evos_and_moves_learnt(true, None)
+        let movesets = self.get_moves_learnt();
+        let trainers = self.get_trainers()?;
+        self.repack_bank(&movesets, &trainers)
     }
 
     fn save_basic_stats(&mut self, id: PokemonId, offset: i32) {
@@ -546,134 +589,6 @@ impl Gen1RomHandler {
             bytes.push(self.poke_num_to_rby[data.pk(evolution.to).number as usize] as u8);
         }
         bytes
-    }
-
-    fn copy_old_evolutions(&self, old_offset: i32, out: &mut Vec<u8>) {
-        let mut offset = old_offset;
-        while self.byte(offset) != 0 {
-            let limiter = if self.byte(offset) == 2 { 4 } else { 3 };
-            for _ in 0..limiter {
-                out.push(self.byte(offset));
-                offset += 1;
-            }
-        }
-    }
-
-    fn copy_old_moves(&self, old_offset: i32, out: &mut Vec<u8>) {
-        let mut offset = old_offset;
-        while self.byte(offset) != 0 {
-            offset += if self.byte(offset) == 2 { 4 } else { 3 };
-        }
-        offset += 1;
-        while self.byte(offset) != 0 {
-            out.push(self.byte(offset));
-            out.push(self.byte(offset + 1));
-            offset += 2;
-        }
-    }
-
-    fn write_new_moves(&mut self, pokemon: PokemonId, moves: &[MoveLearnt], out: &mut Vec<u8>) {
-        let number = self.core.data.pk(pokemon).number;
-        let stats_offset = self.base_stats_offset(number);
-        let mut index = 0;
-        while index < 4 && moves.len() > index && moves[index].level == 1 {
-            let rom_move = self.move_num_to_rom[moves[index].move_number as usize] as u8;
-            self.set_byte(
-                stats_offset + gen1::BS_LEVEL1_MOVES_OFFSET + index as i32,
-                rom_move,
-            );
-            index += 1;
-        }
-        for slot in index..4 {
-            self.set_byte(stats_offset + gen1::BS_LEVEL1_MOVES_OFFSET + slot as i32, 0);
-        }
-        while index < moves.len() {
-            out.push(moves[index].level as u8);
-            out.push(self.move_num_to_rom[moves[index].move_number as usize] as u8);
-            index += 1;
-        }
-    }
-
-    fn write_evos_and_moves_learnt(
-        &mut self,
-        write_evos: bool,
-        movesets: Option<&Movesets>,
-    ) -> Result<()> {
-        let start = self.value("PokemonMovesetsTableOffset");
-        let bank = bank_of(start);
-        let count = self.value("InternalPokemonCount");
-        let mut pointer_table = vec![0u8; (count * 2) as usize];
-        let main_size = self.value("PokemonMovesetsDataSize");
-        let main_offset = start + pointer_table.len() as i32;
-        let mut main_block = DataBlock::new(main_offset, main_size);
-        let extra_offset = self.value("PokemonMovesetsExtraSpaceOffset");
-        let mut extra_block = (bank == bank_of(extra_offset) && extra_offset != 0).then(|| {
-            let next_bank = ((extra_offset / gb::BANK_SIZE) + 1) * gb::BANK_SIZE;
-            DataBlock::new(extra_offset, next_bank - extra_offset)
-        });
-        let mut null_entry_pointer = -1;
-        for internal in 1..=count {
-            let old_offset = calculate_offset(bank, self.word(start + (internal - 1) * 2));
-            let mut set_null_pointer_here = false;
-            let number = self.poke_rby_to_num[internal as usize];
-            let data = if number == 0 {
-                if null_entry_pointer == -1 {
-                    set_null_pointer_here = true;
-                    Some(vec![0u8, 0u8])
-                } else {
-                    write_word(&mut pointer_table, (internal - 1) * 2, null_entry_pointer);
-                    None
-                }
-            } else {
-                let pokemon = PokemonId::from_index(number as usize);
-                let mut bytes = Vec::new();
-                if write_evos {
-                    bytes.extend(self.evolution_bytes(pokemon));
-                } else {
-                    self.copy_old_evolutions(old_offset, &mut bytes);
-                }
-                bytes.push(0);
-                match movesets {
-                    None => self.copy_old_moves(old_offset, &mut bytes),
-                    Some(movesets) => {
-                        let moves = movesets
-                            .get(&number)
-                            .ok_or(RandomizationError::NullPointer("movesets.get"))?
-                            .clone();
-                        self.write_new_moves(pokemon, &moves, &mut bytes);
-                    }
-                }
-                bytes.push(0);
-                Some(bytes)
-            };
-            let Some(data) = data else {
-                continue;
-            };
-            let pointer = match main_block.place(&data) {
-                Some(pointer) => pointer,
-                None => match extra_block.as_mut().and_then(|block| block.place(&data)) {
-                    Some(pointer) => pointer,
-                    None => {
-                        return Err(RandomizationError::randomization(
-                            "Unable to save moves/evolutions, out of space",
-                        ));
-                    }
-                },
-            };
-            if pointer >= 0 {
-                write_word(&mut pointer_table, (internal - 1) * 2, pointer);
-                if set_null_pointer_here {
-                    null_entry_pointer = pointer;
-                }
-            }
-        }
-        let start = start as usize;
-        self.rom[start..start + pointer_table.len()].copy_from_slice(&pointer_table);
-        main_block.write_into(&mut self.rom);
-        if let Some(block) = extra_block {
-            block.write_into(&mut self.rom);
-        }
-        Ok(())
     }
 
     fn update_type_effectiveness(&mut self) {
@@ -874,52 +789,6 @@ struct RawTypeRelationship {
     effectiveness: u8,
 }
 
-struct DataBlock {
-    offset: i32,
-    size: i32,
-    bytes: Vec<u8>,
-    used: i32,
-}
-
-impl DataBlock {
-    fn new(offset: i32, size: i32) -> Self {
-        Self {
-            offset,
-            size,
-            bytes: vec![0; size.max(0) as usize],
-            used: 0,
-        }
-    }
-
-    fn place(&mut self, data: &[u8]) -> Option<i32> {
-        let length = data.len() as i32;
-        let merges_with_previous = data[0] == 0 && self.used > 0;
-        let fits = self.used + length <= self.size
-            || (merges_with_previous && self.used + length == self.size + 1);
-        if !fits {
-            return None;
-        }
-        if merges_with_previous {
-            let pointer = make_gb_pointer(self.offset + self.used - 1);
-            let start = self.used as usize;
-            self.bytes[start..start + data.len() - 1].copy_from_slice(&data[1..]);
-            self.used += length - 1;
-            Some(pointer)
-        } else {
-            let pointer = make_gb_pointer(self.offset + self.used);
-            let start = self.used as usize;
-            self.bytes[start..start + data.len()].copy_from_slice(data);
-            self.used += length;
-            Some(pointer)
-        }
-    }
-
-    fn write_into(&self, rom: &mut [u8]) {
-        let start = self.offset as usize;
-        rom[start..start + self.bytes.len()].copy_from_slice(&self.bytes);
-    }
-}
-
 impl RomHandler for Gen1RomHandler {
     fn core(&self) -> &HandlerCore {
         &self.core
@@ -984,15 +853,8 @@ impl RomHandler for Gen1RomHandler {
     fn remove_evos_for_pokemon_pool(&mut self) {}
 
     fn get_starters(&self) -> Vec<PokemonId> {
-        let mut starters = vec![
-            self.pokemon_by_internal(self.byte(self.entry.array("StarterOffsets1")[0])),
-            self.pokemon_by_internal(self.byte(self.entry.array("StarterOffsets2")[0])),
-        ];
-        if !self.entry.is_yellow {
-            starters
-                .push(self.pokemon_by_internal(self.byte(self.entry.array("StarterOffsets3")[0])));
-        }
-        starters
+        let count = if self.entry.is_yellow { 2 } else { 3 };
+        (0..count).map(|slot| self.starter_at(slot)).collect()
     }
 
     fn set_starters(&mut self, starters: &[PokemonId]) -> Result<bool> {
@@ -1002,7 +864,7 @@ impl RomHandler for Gen1RomHandler {
         }
         for (index, &starter) in starters.iter().enumerate() {
             let value = self.internal_of(starter);
-            for &offset in self.entry.array(&format!("StarterOffsets{}", index + 1)) {
+            for offset in self.starter_offsets(index) {
                 self.set_byte(offset, value);
             }
         }
@@ -1388,42 +1250,8 @@ impl RomHandler for Gen1RomHandler {
     }
 
     fn set_trainers(&mut self, trainers: &[Trainer], _double_battle_mode: bool) -> Result<()> {
-        let pointers = self.trainer_pointers();
-        let class_limits = self.entry.array("TrainerDataClassCounts").to_vec();
-        let mut iterator = trainers.iter();
-        for class in 1..=gen1::TRAINER_CLASS_COUNT {
-            let mut offset = pointers[class as usize];
-            for _ in 0..class_limits[class as usize] {
-                let trainer = iterator
-                    .next()
-                    .ok_or(RandomizationError::IndexOutOfBounds("trainers"))?;
-                if trainer.poketype == 0 {
-                    let fixed_level = trainer
-                        .pokemon
-                        .first()
-                        .ok_or(RandomizationError::IndexOutOfBounds("trainer pokemon"))?
-                        .level;
-                    self.set_byte(offset, fixed_level as u8);
-                    offset += 1;
-                    for tp in &trainer.pokemon {
-                        let internal = self.internal_of(tp.pokemon);
-                        self.set_byte(offset, internal);
-                        offset += 1;
-                    }
-                } else {
-                    self.set_byte(offset, 0xFF);
-                    offset += 1;
-                    for tp in &trainer.pokemon {
-                        self.set_byte(offset, tp.level as u8);
-                        let internal = self.internal_of(tp.pokemon);
-                        self.set_byte(offset + 1, internal);
-                        offset += 2;
-                    }
-                }
-                self.set_byte(offset, 0);
-                offset += 1;
-            }
-        }
+        let movesets = self.get_moves_learnt();
+        self.repack_bank(&movesets, trainers)?;
         let extra_moves_table = self.value("ExtraTrainerMovesTableOffset");
         self.set_byte(extra_moves_table, 0xFF);
         if !self.is_yellow() {
@@ -1489,7 +1317,8 @@ impl RomHandler for Gen1RomHandler {
     }
 
     fn set_moves_learnt(&mut self, movesets: &Movesets) -> Result<()> {
-        self.write_evos_and_moves_learnt(false, Some(movesets))
+        let trainers = self.get_trainers()?;
+        self.repack_bank(movesets, &trainers)
     }
 
     fn get_moves_banned_from_levelup(&self) -> Vec<i32> {
@@ -1516,8 +1345,9 @@ impl RomHandler for Gen1RomHandler {
             .static_pokemon
             .iter()
             .map(|entry| {
+                let species_offset = entry.species_offsets.first().copied().unwrap_or(0);
                 let mut encounter = StaticEncounter::new(
-                    self.pokemon_by_internal(self.byte(entry.species_offsets[0])),
+                    self.pokemon_by_internal(self.byte(self.resolve_offset(species_offset))),
                 );
                 encounter.level = match entry.level_offsets.first() {
                     Some(&offset) => self.signed_byte(offset),
@@ -1538,6 +1368,7 @@ impl RomHandler for Gen1RomHandler {
                 .ok_or(RandomizationError::IndexOutOfBounds("static pokemon"))?;
             let internal = self.internal_of(encounter.pkmn);
             for &offset in &entry.species_offsets {
+                let offset = self.resolve_offset(offset);
                 self.rom[offset as usize] = internal;
             }
             let level_offset = *entry

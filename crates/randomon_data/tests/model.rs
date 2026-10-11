@@ -23,8 +23,9 @@ fn evolution_type_indices_match_the_upstream_reverse_table() {
 }
 
 #[test]
-fn gen1_effectiveness_is_only_used_for_lists() {
-    assert!(Effectiveness::against(Type::Fire, None, 1, false).is_none());
+fn gen1_effectiveness_uses_the_gen1_table() {
+    let fire = Effectiveness::against(Type::Fire, None, 1, false).expect("gen 1 table");
+    assert_eq!(fire.len(), Type::all_types(1).len());
     assert_eq!(
         Effectiveness::not_very_effective(Type::Normal, 1, false),
         vec![Type::Rock, Type::Ghost]

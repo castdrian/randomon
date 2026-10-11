@@ -69,3 +69,12 @@ lto = true
 opt-level = "s"
 strip = "symbols"
 panic = "abort"
+
+[profile.fuzz]
+inherits = "release"
+debug = "line-tables-only"
+strip = "none"
+panic = "unwind"
+lto = false
+codegen-units = 16
+opt-level = 3

@@ -60,7 +60,14 @@ pub fn validate(handler: &dyn RomHandler, settings: &Settings, baseline: &Baseli
     check_pokemon(&mut report, handler);
     check_evolutions(&mut report, handler, settings);
     check_movesets(&mut report, handler, &move_ok);
-    check_trainers(&mut report, handler, baseline, &species_ok, &move_ok, &item_ok);
+    check_trainers(
+        &mut report,
+        handler,
+        baseline,
+        &species_ok,
+        &move_ok,
+        &item_ok,
+    );
 
     let encounters = handler.get_encounters(true);
     report.check(encounters.len() == baseline.encounter_set_count, || {
@@ -100,7 +107,11 @@ pub fn validate(handler: &dyn RomHandler, settings: &Settings, baseline: &Baseli
 
     let tms = handler.get_tm_moves();
     report.check(tms.len() == baseline.tm_count, || {
-        format!("TM count changed from {} to {}", baseline.tm_count, tms.len())
+        format!(
+            "TM count changed from {} to {}",
+            baseline.tm_count,
+            tms.len()
+        )
     });
     for &tm in &tms {
         report.check(move_ok(tm), || format!("TM move {tm} missing"));
@@ -147,7 +158,13 @@ fn check_pokemon(report: &mut Report, handler: &dyn RomHandler) {
     for id in handler.get_pokemon_incl_formes().into_iter().flatten() {
         let pokemon = data.pk(id);
         let stats = if generation == 1 {
-            vec![pokemon.hp, pokemon.attack, pokemon.defense, pokemon.speed, pokemon.special]
+            vec![
+                pokemon.hp,
+                pokemon.attack,
+                pokemon.defense,
+                pokemon.speed,
+                pokemon.special,
+            ]
         } else {
             vec![
                 pokemon.hp,
@@ -214,10 +231,15 @@ fn reaches_itself(data: &GameData, start: PokemonId) -> bool {
 
 fn check_movesets(report: &mut Report, handler: &dyn RomHandler, move_ok: &dyn Fn(i32) -> bool) {
     for (species, moves) in handler.get_moves_learnt() {
-        report.check(!moves.is_empty(), || format!("species {species} learns nothing"));
+        report.check(!moves.is_empty(), || {
+            format!("species {species} learns nothing")
+        });
         for learnt in &moves {
             report.check(move_ok(learnt.move_number), || {
-                format!("species {species} learns missing move {}", learnt.move_number)
+                format!(
+                    "species {species} learns missing move {}",
+                    learnt.move_number
+                )
             });
             report.check((0..=MAX_LEVEL).contains(&learnt.level), || {
                 format!("species {species} learns at level {}", learnt.level)

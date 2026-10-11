@@ -49,7 +49,11 @@ impl Target {
         }
     }
 
-    fn load(&self, registry: &HandlerRegistry, source: &SharedRandomSource) -> Result<Box<dyn RomHandler>, String> {
+    fn load(
+        &self,
+        registry: &HandlerRegistry,
+        source: &SharedRandomSource,
+    ) -> Result<Box<dyn RomHandler>, String> {
         let name = self.rom.to_string_lossy().into_owned();
         let mut handler = match &self.rom_bytes {
             Some(bytes) => registry.load(bytes.to_vec(), &name, source),
@@ -84,7 +88,11 @@ fn describe_panic(payload: Box<dyn std::any::Any + Send>) -> String {
     payload
         .downcast_ref::<String>()
         .cloned()
-        .or_else(|| payload.downcast_ref::<&str>().map(|text| (*text).to_owned()))
+        .or_else(|| {
+            payload
+                .downcast_ref::<&str>()
+                .map(|text| (*text).to_owned())
+        })
         .unwrap_or_else(|| "panic".to_owned())
 }
 
@@ -151,7 +159,8 @@ fn run_one(registry: &HandlerRegistry, target: &Target, case: u64, seed_index: u
         save_as_directory: streamed,
         ..RandomizationOptions::default()
     };
-    let output = match randomize_with_handler(handler.as_mut(), &source, &settings, seed, &options) {
+    let output = match randomize_with_handler(handler.as_mut(), &source, &settings, seed, &options)
+    {
         Ok(output) => output,
         Err(error) => {
             result.problems.push(format!("randomize: {error}"));
@@ -159,9 +168,11 @@ fn run_one(registry: &HandlerRegistry, target: &Target, case: u64, seed_index: u
         }
     };
     let effective = output.settings.clone();
-    result
-        .problems
-        .extend(validate(handler.as_ref(), &effective, &baseline).into_iter().map(|p| format!("in memory: {p}")));
+    result.problems.extend(
+        validate(handler.as_ref(), &effective, &baseline)
+            .into_iter()
+            .map(|p| format!("in memory: {p}")),
+    );
     match &output.rom {
         RomOutput::File(bytes) => {
             let reload_source = RandomSource::with_seed(0).into_shared();
@@ -282,7 +293,10 @@ fn watch(beats: mpsc::Receiver<(usize, Option<u64>)>, timeout: Duration) {
             Err(mpsc::RecvTimeoutError::Disconnected) => return,
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
-        if let Some((case, _)) = busy.values().find(|(_, started)| started.elapsed() > timeout) {
+        if let Some((case, _)) = busy
+            .values()
+            .find(|(_, started)| started.elapsed() > timeout)
+        {
             eprintln!("HANG case {case} exceeded {timeout:?}");
             std::process::exit(2);
         }
@@ -290,5 +304,7 @@ fn watch(beats: mpsc::Receiver<(usize, Option<u64>)>, timeout: Duration) {
 }
 
 pub fn env_path(name: &str) -> Option<PathBuf> {
-    std::env::var_os(name).map(PathBuf::from).filter(|path| Path::new(path).exists())
+    std::env::var_os(name)
+        .map(PathBuf::from)
+        .filter(|path| Path::new(path).exists())
 }
