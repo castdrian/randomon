@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
+	"github.com/castdrian/randomon/tools/internal/repo"
 	"html"
 	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 )
@@ -34,11 +34,7 @@ var statuses = map[string]statusInfo{
 }
 
 func projectRoot() string {
-	if override := os.Getenv("RANDOMON_ROOT"); override != "" {
-		return override
-	}
-	_, source, _, _ := runtime.Caller(0)
-	return filepath.Dir(filepath.Dir(source))
+	return repo.Root()
 }
 
 func parseString(value string) (string, error) {

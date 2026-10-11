@@ -68,7 +68,11 @@ jobs:
               with:
                   fetch-depth: 1
             - uses: dtolnay/rust-toolchain@stable
-            - run: scripts/set-version.sh ${{ needs.version.outputs.version }}
+            - uses: actions/setup-go@v7
+              with:
+                  go-version-file: tools/go.mod
+                  cache-dependency-path: tools/go.mod
+            - run: go run ./tools/cmd/set-version ${{ needs.version.outputs.version }}
             - name: Install dependencies
               run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libfontconfig1-dev pkg-config libfuse2 file
             - uses: Swatinem/rust-cache@v2
@@ -87,7 +91,7 @@ jobs:
                   cp package/linux/dev.adrian.randomon.metainfo.xml "$APPDIR/usr/share/metainfo/"
                   cp assets/icon-512.png "$APPDIR/randomon.png"
                   cp assets/icon-512.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/randomon.png"
-                  cp package/linux/AppRun "$APPDIR/AppRun"
+                  ln -s usr/bin/randomon "$APPDIR/AppRun"
                   curl -fsSL -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$ARCH.AppImage"
                   chmod +x appimagetool
                   ./appimagetool --appimage-extract-and-run "$APPDIR" "dist/randomon-$VERSION-linux-$ARCH.AppImage"
@@ -116,7 +120,11 @@ jobs:
             - uses: dtolnay/rust-toolchain@stable
               with:
                   targets: ${{ matrix.target }}
-            - run: bash scripts/set-version.sh ${{ needs.version.outputs.version }}
+            - uses: actions/setup-go@v7
+              with:
+                  go-version-file: tools/go.mod
+                  cache-dependency-path: tools/go.mod
+            - run: go run ./tools/cmd/set-version ${{ needs.version.outputs.version }}
             - uses: Swatinem/rust-cache@v2
             - run: cargo build --release -p randomon -p randomon-cli --target ${{ matrix.target }}
             - name: Collect binaries
@@ -169,7 +177,11 @@ jobs:
             - uses: dtolnay/rust-toolchain@stable
               with:
                   targets: aarch64-apple-darwin, x86_64-apple-darwin
-            - run: scripts/set-version.sh ${{ needs.version.outputs.version }}
+            - uses: actions/setup-go@v7
+              with:
+                  go-version-file: tools/go.mod
+                  cache-dependency-path: tools/go.mod
+            - run: go run ./tools/cmd/set-version ${{ needs.version.outputs.version }}
             - uses: Swatinem/rust-cache@v2
             - name: Build universal binaries
               run: |
@@ -201,9 +213,7 @@ jobs:
                   ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
                   PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
                   BUNDLE_IDENTIFIER: dev.adrian.randomon
-              run: |
-                  python3 -m pip install --quiet --break-system-packages "pyjwt[crypto]" requests
-                  python3 package/macos/register_bundle_id.py
+              run: go run ./tools/cmd/register-bundle-id
 
             - name: Fetch Signing Assets
               uses: castdrian/setup-apple-certificate@main
@@ -301,6 +311,10 @@ jobs:
               with:
                   fetch-depth: 0
             - uses: dtolnay/rust-toolchain@stable
+            - uses: actions/setup-go@v7
+              with:
+                  go-version-file: tools/go.mod
+                  cache-dependency-path: tools/go.mod
             - uses: actions/setup-node@v7
               with:
                   node-version: lts/*

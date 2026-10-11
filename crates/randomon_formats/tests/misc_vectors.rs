@@ -66,7 +66,9 @@ fn free_space_finder_matches_upstream() {
 fn upstream_ips_patches_apply_identically() {
     let patches = upstream_dir().join("patches");
     if !patches.exists() {
-        eprintln!("upstream source missing, run tools/fetch-upstream.sh to include this test");
+        eprintln!(
+            "upstream source missing, run `go run ./cmd/fetch-upstream` in tools/ to include this test"
+        );
         return;
     }
     let vectors = vector("ips");

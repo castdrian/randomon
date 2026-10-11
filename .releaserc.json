@@ -7,7 +7,7 @@
     ["@semantic-release/changelog", { "changelogFile": "CHANGELOG.md" }],
     ["@semantic-release/exec", {
       "verifyReleaseCmd": "echo ${nextRelease.version} > .next-version",
-      "prepareCmd": "scripts/set-version.sh ${nextRelease.version}"
+      "prepareCmd": "go run ./tools/cmd/set-version ${nextRelease.version}"
     }],
     ["@semantic-release/git", {
       "assets": ["Cargo.toml", "Cargo.lock", "CHANGELOG.md"],

@@ -16,8 +16,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: stable
-      - run: go run scripts/generate-compatibility-card.go
+          go-version-file: tools/go.mod
+          cache-dependency-path: tools/go.mod
+      - run: go run ./tools/cmd/compat-card
       - name: Commit compatibility card
         run: |
           if git diff --quiet -- .github/compatibility.svg; then

@@ -71,9 +71,11 @@ fn ensure_java_runner(root: &Path) {
     {
         return;
     }
-    let status = Command::new(root.join("tools/parity/build.sh"))
+    let status = Command::new("go")
+        .args(["run", "./cmd/parity-build"])
+        .current_dir(root.join("tools"))
         .status()
-        .expect("build.sh runs");
+        .expect("go runs the parity build");
     assert!(status.success(), "building the Java parity runner failed");
 }
 

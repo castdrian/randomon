@@ -82,4 +82,4 @@ codegen-units = 16
 opt-level = 3
 
 [patch.crates-io]
-block = { path = "3rdparty/block" }
+block = { path = "vendor/block" }
