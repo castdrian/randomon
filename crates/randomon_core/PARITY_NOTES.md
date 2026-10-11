@@ -21,17 +21,15 @@ Decisions taken while porting `Randomizer.java`, `AbstractRomHandler.java` and t
 - `Time elapsed: …ms` is real wall-clock time on both sides. The parity harness masks that one line.
 - The settings line uses the checksum of the default `customnames.rncn`, like `Settings.toString`. A different checksum can be passed through `RandomizationOptions::custom_names_checksum`.
 
-## Upstream failures that Randomon reproduces
+## Upstream failures that Randomon fixes
 
-UPR throws in these cases, and Randomon returns an error instead of output:
+Byte parity is no longer a goal. Where UPR crashes, hangs or runs out of memory, Randomon now produces a sensible result instead:
 
-- `pickTrainerMovesets` on Gen 1: Gen 1 Pokémon have `spatk == 0`, so the attack ratio is infinite and Java runs out of memory adding moves. Randomon stops with an `OutOfMemoryError` message once the requested copies exceed 50 million. Past that point Java would also reach the `Effectiveness.against` null in `getSoftMoveSynergy`.
-- `copyUpEvolutionsHelper` after "random every level" evolutions, when an evolution cycle has no base Pokémon: Java keeps pushing onto a stack until the heap runs out, and Randomon stops after 100,000 steps.
-- Gen 1 trainer edits that change the size of the trainer data: double battles, additional Pokémon, and held items (which switch a trainer to the special format). The data spills into the next trainer class, later reads find an unused species, and Java fails with a `NullPointerException`. Randomon's Gen 1 `get_trainers` reports the same null.
-- `randomizeEvolutions`/`randomizeEvolutionsEveryLevel` throw `Not able to randomize evolutions in a sane amount of retries.` when a growth curve has no candidate. That message is kept.
-- `getStarters().subList(0, 3)` on Yellow when "Elite Four unique Pokémon" and "rival carries starter" are both set.
-
-Some smaller cases are handled the same way: empty choice lists (`Random.nextInt(0)`), out-of-range indexes and `null` dereferences on paths that real ROMs reach. Each returns a `RandomizationError` rather than panicking.
+- Gen 1 and Gen 2 trainer data that grows (extra Pokémon, held items, custom moves) is repacked into the bank's original trainer extents plus known free space (Gen 1 shares bank space with movesets and evolutions; Gen 2 uses the free tail of the trainer bank). Classes that still fit stay in place. If the data cannot fit, added Pokémon are trimmed first (regular trainers before important ones and bosses), then custom moves and held items that were not originally present. Trainer slots that other tables point into (Yellow's rival starter) are kept in place.
+- Gen 1 has no held items, double battles or per-trainer moves, and Gen 2 has no double battles, so `tweak_for_rom` turns those options off for those games. Better trainer movesets uses Gen 1's special stat when the ratio is computed.
+- Evolution walks (`final_evos`, relatives, pre-evolution chains, illegal chains, copy-up) are cycle-safe, so "random every level" works. Random evolutions relax force-change, the stage limit and then the growth curve before giving a Pokémon no evolution, and Pokémon outside the original pool no longer raise `originalEvos.get`.
+- Similar-strength searches widen in bounded steps until the whole pool is covered, then fall back. Every random retry loop is bounded, and empty pools fall back to the full pool or keep the original Pokémon.
+- Handler getters that fail record a deferred error that the randomizer reports before saving, instead of panicking.
 
 ## What every generation handler implements
 
@@ -68,3 +66,4 @@ The Gen 4 handler (`randomon_gen4`) follows the product rule that the randomizer
 - UPR applies the Platinum and HGSS roamer subroutine patch (and the DP roamer fix) the first time `getStaticPokemon` runs. Randomon applies it when the ROM loads, which leaves the same bytes because UPR always calls `getStaticPokemon` when statics are supported and nothing before it reads the extended area.
 - Out-of-range ROM reads return errors instead of panicking. Trait getters that cannot return a `Result` log a warning and return an empty value, and setters tolerate short lists instead of crashing.
 - Validation without a Gen 4 ROM: `randomon_gen4/tests/support` builds synthetic NDS images for every offsets entry. `RANDOMON_GEN4_SYNTHETIC_PARITY=1` runs UPR ZX and Randomon on Diamond, Platinum and HeartGold images over the settings grid; every remaining difference is one of the fixes above or a shared-engine failure both sides hit. `RANDOMON_GEN4_ROM` runs the same grid on a real ROM.
+- Edits to RomFS files that exist only in a loaded game update are written to the LayeredFS output too.

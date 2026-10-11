@@ -128,7 +128,7 @@ pub fn restrictions_allow_mega_swaps(s: &Settings, caps: &Caps, include_elite_fo
 }
 
 pub fn better_trainer_movesets(_: &Settings, caps: &Caps) -> bool {
-    caps.generation_at_least(3)
+    caps.generation_at_least(2)
 }
 
 pub fn trainer_held_items_chosen(s: &Settings, _: &Caps) -> bool {

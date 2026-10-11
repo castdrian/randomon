@@ -1,0 +1,22 @@
+[package]
+name = "randomon_fuzz"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+randomon_core.workspace = true
+randomon_data.workspace = true
+randomon_java.workspace = true
+randomon_settings.workspace = true
+randomon_gen1.workspace = true
+randomon_gen2.workspace = true
+randomon_gen5.workspace = true
+randomon_gen6.workspace = true
+randomon_gen7.workspace = true
+
+[lints]
+workspace = true

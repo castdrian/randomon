@@ -35,6 +35,7 @@ pub struct Gen2RomHandler {
     pub(crate) non_bad_items: ItemList,
     pub(crate) actual_crc32: i64,
     pub(crate) effectiveness_updated: bool,
+    pub(crate) trainer_space: crate::trainer_space::TrainerSpace,
 }
 
 pub fn check_rom_entry(rom: &[u8]) -> Option<&'static RomEntry> {
@@ -126,7 +127,13 @@ impl Gen2RomHandler {
             allowed_items,
             non_bad_items: c::non_bad_items(),
             effectiveness_updated: false,
+            trainer_space: crate::trainer_space::TrainerSpace::default(),
         };
+        handler.trainer_space = crate::trainer_space::measure_trainer_space(
+            &handler.rom,
+            handler.value("TrainerDataTableOffset"),
+            handler.array("TrainerDataClassCounts"),
+        );
         handler.load_pokemon_stats()?;
         handler.load_moves();
         handler.load_item_names();

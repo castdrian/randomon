@@ -103,7 +103,30 @@ fn engine_game(handler: &dyn RomHandler, source: RomSource, path: &Path) -> Engi
 }
 
 pub fn inspect(path: &Path, size_bytes: u64) -> Option<EngineGame> {
-    inspect_from_file(path).or_else(|| inspect_in_memory(path, size_bytes))
+    guarded(|| inspect_from_file(path).or_else(|| inspect_in_memory(path, size_bytes)))
+        .ok()
+        .flatten()
+}
+
+fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    payload
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| {
+            payload
+                .downcast_ref::<&str>()
+                .map(|text| (*text).to_owned())
+        })
+        .unwrap_or_else(|| "unknown error".to_owned())
+}
+
+pub(crate) fn guarded<T>(work: impl FnOnce() -> T) -> Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)).map_err(|payload| {
+        format!(
+            "randomon ran into an internal error ({}). Please report it with your settings string and seed.",
+            panic_message(payload)
+        )
+    })
 }
 
 fn is_3ds(game: &EngineGame) -> bool {
@@ -169,7 +192,7 @@ pub async fn randomize(
     game_update: Option<PathBuf>,
 ) -> Result<RandomizedGame, String> {
     tokio::task::spawn_blocking(move || {
-        randomize_blocking(&game, &settings, seed, output, game_update)
+        guarded(|| randomize_blocking(&game, &settings, seed, output, game_update))?
     })
     .await
     .map_err(|error| error.to_string())?
@@ -261,5 +284,86 @@ mod tests {
         let log = std::fs::read(done.log.expect("log written")).expect("log readable");
         assert!(log.starts_with(&[0xEF, 0xBB, 0xBF]));
         assert!(String::from_utf8_lossy(&log).contains("Random Seed: 123456789"));
+    }
+
+    fn env_path(name: &str) -> Option<PathBuf> {
+        std::env::var_os(name)
+            .map(PathBuf::from)
+            .filter(|path| path.exists())
+    }
+
+    fn code_of(rom: &Path, update: Option<&Path>) -> Vec<u8> {
+        let source = randomon_ctr::rom::open_file_source(rom).expect("base rom opens");
+        let mut ctr = randomon_ctr::CtrRom::open(source, "rom").expect("base rom parses");
+        if let Some(update) = update {
+            let source = randomon_ctr::rom::open_file_source(update).expect("update opens");
+            ctr.load_update(source).expect("update parses");
+        }
+        ctr.read_code().expect("code.bin reads")
+    }
+
+    fn files_under(directory: &Path) -> Vec<PathBuf> {
+        let mut found = Vec::new();
+        let mut pending = vec![directory.to_path_buf()];
+        while let Some(current) = pending.pop() {
+            for entry in std::fs::read_dir(&current).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else {
+                    found.push(path);
+                }
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn randomizing_with_a_game_update_writes_layeredfs_built_from_the_update() {
+        let (Some(rom), Some(update)) = (
+            env_path("RANDOMON_GEN6_ROM"),
+            env_path("RANDOMON_GEN6_UPDATE"),
+        ) else {
+            return;
+        };
+        let size = std::fs::metadata(&rom).expect("rom metadata").len();
+        let game = inspect(&rom, size).expect("engine recognises the 3DS rom");
+        let settings = Settings {
+            rom_name: Some(game.rom_name.clone()),
+            selected_exp_curve: Some(randomon_settings::ExpCurve::MediumFast),
+            trainers_mod: randomon_settings::TrainersMod::Random,
+            wild_pokemon_mod: randomon_settings::WildPokemonMod::Random,
+            starters_mod: randomon_settings::StartersMod::CompletelyRandom,
+            current_misc_tweaks: randomon_settings::MiscTweak::FastestText.value(),
+            ..Settings::default()
+        };
+        let output = std::env::temp_dir().join("randomon-update-flow");
+        let _ = std::fs::remove_dir_all(&output);
+        std::fs::create_dir_all(&output).expect("output folder");
+        let done = randomize_blocking(&game, &settings, 42, output.clone(), Some(update.clone()))
+            .expect("randomizes with the update");
+        let log_path = done.log.expect("log written");
+        let log =
+            String::from_utf8_lossy(&std::fs::read(&log_path).expect("log readable")).into_owned();
+        assert!(log.contains("Randomization of"));
+        assert!(!log.contains("(Unpatched) completed"));
+        let titles: Vec<PathBuf> = std::fs::read_dir(&output)
+            .expect("output listing")
+            .flatten()
+            .map(|entry| entry.path())
+            .collect();
+        assert_eq!(titles.len(), 1, "one title folder");
+        let title = &titles[0];
+        let romfs_files = files_under(&title.join("romfs"));
+        assert!(!romfs_files.is_empty(), "changed romfs files are written");
+        let written_code = std::fs::read(title.join("code.bin")).expect("code.bin written");
+        let update_code = code_of(&rom, Some(&update));
+        let base_code = code_of(&rom, None);
+        assert_eq!(written_code.len(), update_code.len());
+        if base_code.len() != update_code.len() {
+            assert_ne!(written_code.len(), base_code.len());
+        }
+        let _ = std::fs::remove_dir_all(&output);
+        let _ = std::fs::remove_file(&log_path);
     }
 }

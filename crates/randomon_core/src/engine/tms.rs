@@ -42,7 +42,7 @@ fn pick_new_moves<H: RomHandler + ?Sized>(
     let mut unusable_damaging: Vec<MoveId> = Vec::new();
     for id in data.move_ids().into_iter().skip(1) {
         let Some(id) = id else {
-            return Err(RandomizationError::NullPointer("move list entry"));
+            continue;
         };
         let mv = data.mv(id);
         let unusable = global::banned_random_move(mv.number)
@@ -68,7 +68,11 @@ fn pick_new_moves<H: RomHandler + ?Sized>(
         randomon_java::math::round_double(good_damaging_percentage * f64::from(count)) as i32;
     let mut random = handler.core().engine.random.clone();
     let mut picked: Vec<i32> = Vec::new();
+    let all_usable = usable.clone();
     for _ in 0..count {
+        if usable.is_empty() {
+            usable = all_usable.clone();
+        }
         let chosen = if good_damaging_left > 0 && !usable_damaging.is_empty() {
             pick(&mut random, &usable_damaging)?
         } else {

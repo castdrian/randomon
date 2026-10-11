@@ -6,6 +6,18 @@ pub fn generation_3_plus(caps: &Caps) -> bool {
     caps.generation_at_least(3)
 }
 
+pub fn trainer_movesets(caps: &Caps) -> bool {
+    caps.generation_at_least(2)
+}
+
+pub fn trainer_held_items(caps: &Caps) -> bool {
+    caps.generation_at_least(2)
+}
+
+pub fn additional_trainer_pokemon(_: &Caps) -> bool {
+    true
+}
+
 pub fn generation_4_plus(caps: &Caps) -> bool {
     caps.generation_at_least(4)
 }

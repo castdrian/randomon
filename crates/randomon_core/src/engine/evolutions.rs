@@ -4,6 +4,7 @@ use randomon_data::constants::{global, species};
 use randomon_data::{Evolution, EvolutionId, EvolutionType, EvolutionUpdate, GameData, PokemonId};
 use randomon_settings::{AbilitiesMod, Settings};
 
+use crate::engine::choose::{StrengthWindow, first_non_empty};
 use crate::engine::pool::{
     check_pokemon_restrictions, find_pokemon_in_pool_with_species_id, non_cosmetic,
 };
@@ -14,43 +15,40 @@ use crate::state::EvolutionUpdates;
 
 pub fn evolutionary_relatives(data: &GameData, pokemon: PokemonId) -> Vec<PokemonId> {
     let mut relatives: Vec<PokemonId> = Vec::new();
-    for target in data.evolution_targets(pokemon) {
-        if relatives.contains(&target) {
-            continue;
-        }
-        relatives.push(target);
-        let mut queue: VecDeque<PokemonId> = data.evolution_targets(target).into();
-        while let Some(next) = queue.pop_front() {
-            if !relatives.contains(&next) {
-                relatives.push(next);
-                queue.extend(data.evolution_targets(next));
-            }
-        }
-    }
-    for source in data.evolution_sources(pokemon) {
-        if relatives.contains(&source) {
-            continue;
-        }
-        let mut pre_evolution = source;
-        relatives.push(pre_evolution);
-        for relative in evolutionary_relatives(data, pre_evolution) {
-            if !relatives.contains(&relative) {
-                relatives.push(relative);
-            }
-        }
-        while let Some(earlier) = data.first_pre_evolution(pre_evolution) {
-            pre_evolution = earlier;
-            if !relatives.contains(&pre_evolution) {
-                relatives.push(pre_evolution);
-                for relative in evolutionary_relatives(data, pre_evolution) {
-                    if !relatives.contains(&relative) {
-                        relatives.push(relative);
-                    }
-                }
+    let mut queue: VecDeque<PokemonId> = VecDeque::from([pokemon]);
+    while let Some(current) = queue.pop_front() {
+        let neighbours = data
+            .evolution_targets(current)
+            .into_iter()
+            .chain(data.evolution_sources(current));
+        for neighbour in neighbours {
+            if neighbour != pokemon && !relatives.contains(&neighbour) {
+                relatives.push(neighbour);
+                queue.push_back(neighbour);
             }
         }
     }
     relatives
+}
+
+pub fn pre_evolution_chain(data: &GameData, pokemon: PokemonId) -> Vec<PokemonId> {
+    let mut chain = Vec::new();
+    let mut current = pokemon;
+    while let Some(earlier) = data.first_pre_evolution(current) {
+        if earlier == pokemon || chain.contains(&earlier) {
+            break;
+        }
+        chain.push(earlier);
+        current = earlier;
+    }
+    chain
+}
+
+pub fn earliest_pre_evolution(data: &GameData, pokemon: PokemonId) -> PokemonId {
+    pre_evolution_chain(data, pokemon)
+        .last()
+        .copied()
+        .unwrap_or(pokemon)
 }
 
 fn is_cyclic(
@@ -173,19 +171,20 @@ pub fn fully_evolve<H: RomHandler + ?Sized>(
 
 pub fn final_evos(data: &GameData, pokemon: PokemonId) -> Vec<PokemonId> {
     let mut finals = Vec::new();
-    traverse_evolutions(data, pokemon, &mut finals);
-    finals
-}
-
-fn traverse_evolutions(data: &GameData, pokemon: PokemonId, finals: &mut Vec<PokemonId>) {
-    let targets = data.evolution_targets(pokemon);
-    if targets.is_empty() {
-        finals.push(pokemon);
-    } else {
-        for target in targets {
-            traverse_evolutions(data, target, finals);
+    let mut seen = HashSet::from([pokemon]);
+    let mut stack = vec![pokemon];
+    while let Some(current) = stack.pop() {
+        let targets = data.evolution_targets(current);
+        if targets.is_empty() {
+            finals.push(current);
+        }
+        for target in targets.into_iter().rev() {
+            if seen.insert(target) {
+                stack.push(target);
+            }
         }
     }
+    finals
 }
 
 pub fn set_evo_chain_as_illegal(
@@ -194,24 +193,33 @@ pub fn set_evo_chain_as_illegal(
     illegal: &mut Vec<PokemonId>,
     will_force_evolve: bool,
 ) {
-    set_illegal_pre_evos(data, pokemon, illegal);
+    illegal.extend(reachable(data, pokemon, |data, id| {
+        data.evolution_sources(id)
+    }));
     if will_force_evolve {
-        set_illegal_evos(data, pokemon, illegal);
+        illegal.extend(reachable(data, pokemon, |data, id| {
+            data.evolution_targets(id)
+        }));
     }
 }
 
-fn set_illegal_pre_evos(data: &GameData, pokemon: PokemonId, illegal: &mut Vec<PokemonId>) {
-    for source in data.evolution_sources(pokemon) {
-        illegal.push(source);
-        set_illegal_pre_evos(data, source, illegal);
+fn reachable(
+    data: &GameData,
+    start: PokemonId,
+    next: impl Fn(&GameData, PokemonId) -> Vec<PokemonId>,
+) -> Vec<PokemonId> {
+    let mut found = Vec::new();
+    let mut seen = HashSet::from([start]);
+    let mut stack = vec![start];
+    while let Some(current) = stack.pop() {
+        for neighbour in next(data, current) {
+            if seen.insert(neighbour) {
+                found.push(neighbour);
+                stack.push(neighbour);
+            }
+        }
     }
-}
-
-fn set_illegal_evos(data: &GameData, pokemon: PokemonId, illegal: &mut Vec<PokemonId>) {
-    for target in data.evolution_targets(pokemon) {
-        illegal.push(target);
-        set_illegal_evos(data, target, illegal);
-    }
+    found
 }
 
 fn evolution_update(
@@ -517,8 +525,10 @@ fn exceeds_stage_limit(
         } else if pre_evolutions == stage_limit - 1 && data.evolutions_from(related).is_empty() {
             let had_evolutions = original
                 .get(&related)
-                .ok_or(RandomizationError::NullPointer("originalEvos entry"))?;
-            if !had_evolutions.is_empty() {
+                .map_or(!data.evolutions_from(related).is_empty(), |evos| {
+                    !evos.is_empty()
+                });
+            if had_evolutions {
                 exceeded = true;
                 break;
             }
@@ -527,6 +537,98 @@ fn exceeds_stage_limit(
     data.remove_first_equal_from(from, temporary);
     data.remove_first_equal_to(candidate, temporary);
     Ok(exceeded)
+}
+
+struct RandomEvolutionConstraints<'a> {
+    from: PokemonId,
+    banned: &'a [PokemonId],
+    new_pairs: &'a HashSet<(PokemonId, PokemonId)>,
+    old_pairs: &'a HashSet<(PokemonId, PokemonId)>,
+    stage_limit: i32,
+    original: &'a HashMap<PokemonId, Vec<EvolutionId>>,
+}
+
+#[derive(Clone, Copy)]
+struct Relaxation {
+    force_change: bool,
+    stage_limit: bool,
+    growth_curve: bool,
+}
+
+const RELAXATIONS: [Relaxation; 4] = [
+    Relaxation {
+        force_change: true,
+        stage_limit: true,
+        growth_curve: true,
+    },
+    Relaxation {
+        force_change: false,
+        stage_limit: true,
+        growth_curve: true,
+    },
+    Relaxation {
+        force_change: false,
+        stage_limit: false,
+        growth_curve: true,
+    },
+    Relaxation {
+        force_change: false,
+        stage_limit: false,
+        growth_curve: false,
+    },
+];
+
+fn random_evolution_replacements<H: RomHandler + ?Sized>(
+    handler: &mut H,
+    allow_alt_formes: bool,
+    force_change: bool,
+    constraints: &RandomEvolutionConstraints<'_>,
+) -> Result<Vec<PokemonId>> {
+    let from = constraints.from;
+    let chosen_list = evolution_candidates(handler, allow_alt_formes);
+    for relaxation in RELAXATIONS {
+        let mut replacements = Vec::new();
+        for &candidate in &chosen_list {
+            let data = &handler.core().data;
+            if candidate == from
+                || constraints.banned.contains(&candidate)
+                || constraints.new_pairs.contains(&(from, candidate))
+            {
+                continue;
+            }
+            if relaxation.growth_curve
+                && data.pk(candidate).growth_curve != data.pk(from).growth_curve
+            {
+                continue;
+            }
+            if relaxation.force_change
+                && force_change
+                && constraints.old_pairs.contains(&(from, candidate))
+            {
+                continue;
+            }
+            let data = &mut handler.core_mut().data;
+            if evo_cycle_check(data, from, candidate) {
+                continue;
+            }
+            if relaxation.stage_limit
+                && exceeds_stage_limit(
+                    data,
+                    from,
+                    candidate,
+                    constraints.stage_limit,
+                    constraints.original,
+                )?
+            {
+                continue;
+            }
+            replacements.push(candidate);
+        }
+        if !replacements.is_empty() {
+            return Ok(replacements);
+        }
+    }
+    Ok(Vec::new())
 }
 
 pub fn randomize_evolutions<H: RomHandler + ?Sized>(
@@ -560,38 +662,22 @@ pub fn randomize_evolutions<H: RomHandler + ?Sized>(
     for &from in &pool {
         for &old_evo in &original[&from] {
             let old = handler.core().data.evo(old_evo).clone();
-            let chosen_list = evolution_candidates(handler, allow_alt_formes);
-            let mut replacements = Vec::new();
-            for candidate in chosen_list {
-                if candidate == from {
-                    continue;
-                }
-                let data = &handler.core().data;
-                if data.pk(candidate).growth_curve != data.pk(from).growth_curve {
-                    continue;
-                }
-                if banned.contains(&candidate) {
-                    continue;
-                }
-                if new_pairs.contains(&(from, candidate)) {
-                    continue;
-                }
-                if force_change && old_pairs.contains(&(from, candidate)) {
-                    continue;
-                }
-                let data = &mut handler.core_mut().data;
-                if evo_cycle_check(data, from, candidate) {
-                    continue;
-                }
-                if exceeds_stage_limit(data, from, candidate, stage_limit, &original)? {
-                    continue;
-                }
-                replacements.push(candidate);
-            }
+            let constraints = RandomEvolutionConstraints {
+                from,
+                banned: &banned,
+                new_pairs: &new_pairs,
+                old_pairs: &old_pairs,
+                stage_limit,
+                original: &original,
+            };
+            let mut replacements = random_evolution_replacements(
+                handler,
+                allow_alt_formes,
+                force_change,
+                &constraints,
+            )?;
             if replacements.is_empty() {
-                return Err(RandomizationError::randomization(
-                    "Not able to randomize evolutions in a sane amount of retries.",
-                ));
+                continue;
             }
             if replacements.len() > 1 && same_type {
                 let data = &handler.core().data;
@@ -658,36 +744,11 @@ fn pick_evo_power_lvl_replacement<H: RomHandler + ?Sized>(
 ) -> Result<PokemonId> {
     let data = &handler.core().data;
     let already_picked = &handler.core().engine.already_picked;
-    let current_bst = data.pk(current).bst_for_power_levels();
-    let mut min_target = current_bst - current_bst / 10;
-    let mut max_target = current_bst + current_bst / 10;
-    let mut can_pick: Vec<PokemonId> = Vec::new();
-    let mut emergency: Vec<PokemonId> = Vec::new();
-    let mut expand_rounds = 0;
-    while can_pick.is_empty() || (can_pick.len() < 3 && expand_rounds < 3) {
-        for &pokemon in pool {
-            let bst = data.pk(pokemon).bst_for_power_levels();
-            if bst >= min_target
-                && bst <= max_target
-                && !can_pick.contains(&pokemon)
-                && !emergency.contains(&pokemon)
-            {
-                if already_picked.contains(&pokemon) {
-                    emergency.push(pokemon);
-                } else {
-                    can_pick.push(pokemon);
-                }
-            }
-        }
-        if expand_rounds >= 2 && can_pick.is_empty() {
-            can_pick.extend(emergency.iter().copied());
-        }
-        min_target -= current_bst / 20;
-        max_target += current_bst / 20;
-        expand_rounds += 1;
-    }
+    let window = StrengthWindow::around(data.pk(current).bst_for_power_levels(), 3, 3);
+    let fresh = window.candidates(data, pool, |pokemon| !already_picked.contains(&pokemon));
+    let any = window.candidates(data, pool, |_| true);
     let mut random = handler.core().engine.random.clone();
-    pick(&mut random, &can_pick)
+    pick(&mut random, &first_non_empty(&[&fresh, &any, pool]))
 }
 
 pub fn randomize_evolutions_every_level<H: RomHandler + ?Sized>(
@@ -709,19 +770,27 @@ pub fn randomize_evolutions_every_level<H: RomHandler + ?Sized>(
     for &from in &pool {
         let chosen_list = evolution_candidates(handler, allow_alt_formes);
         let data = &handler.core().data;
-        let mut replacements: Vec<PokemonId> = chosen_list
-            .into_iter()
-            .filter(|&candidate| {
-                candidate != from
-                    && data.pk(candidate).growth_curve == data.pk(from).growth_curve
-                    && !banned.contains(&candidate)
-                    && !(force_change && old_pairs.contains(&(from, candidate)))
-            })
-            .collect();
+        let mut replacements = Vec::new();
+        for relaxation in RELAXATIONS {
+            replacements = chosen_list
+                .iter()
+                .copied()
+                .filter(|&candidate| {
+                    candidate != from
+                        && !banned.contains(&candidate)
+                        && (!relaxation.growth_curve
+                            || data.pk(candidate).growth_curve == data.pk(from).growth_curve)
+                        && !(relaxation.force_change
+                            && force_change
+                            && old_pairs.contains(&(from, candidate)))
+                })
+                .collect();
+            if !replacements.is_empty() {
+                break;
+            }
+        }
         if replacements.is_empty() {
-            return Err(RandomizationError::randomization(
-                "Not able to randomize evolutions in a sane amount of retries.",
-            ));
+            continue;
         }
         if replacements.len() > 1 && same_type {
             let include: Vec<PokemonId> = replacements
@@ -757,4 +826,50 @@ pub fn randomize_evolutions_every_level<H: RomHandler + ?Sized>(
     }
     share_cosmetic_evolutions(&mut handler.core_mut().data, &cosmetic_pool);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use randomon_data::StatLayout;
+
+    fn chain(data: &mut GameData, from: PokemonId, to: PokemonId) {
+        let id = data.new_evolution(Evolution::new(from, to, true, EvolutionType::Level, 10));
+        data.evolutions_from_mut(from).push(id);
+        data.evolutions_to_mut(to).push(id);
+    }
+
+    fn cycle() -> (GameData, Vec<PokemonId>) {
+        let mut data = GameData::new();
+        let ids: Vec<PokemonId> = (1..=3)
+            .map(|number| data.create_pokemon(StatLayout::Standard, number))
+            .collect();
+        chain(&mut data, ids[0], ids[1]);
+        chain(&mut data, ids[1], ids[2]);
+        chain(&mut data, ids[2], ids[0]);
+        (data, ids)
+    }
+
+    #[test]
+    fn chain_walks_terminate_on_evolution_cycles() {
+        let (data, ids) = cycle();
+        assert!(final_evos(&data, ids[0]).is_empty());
+        assert_eq!(pre_evolution_chain(&data, ids[0]).len(), 2);
+        assert_eq!(evolutionary_relatives(&data, ids[0]).len(), 2);
+        let mut illegal = Vec::new();
+        set_evo_chain_as_illegal(&data, ids[0], &mut illegal, true);
+        assert_eq!(illegal.len(), 4);
+    }
+
+    #[test]
+    fn stage_limit_tolerates_pokemon_outside_the_original_pool() {
+        let mut data = GameData::new();
+        let from = data.create_pokemon(StatLayout::Standard, 1);
+        let forme = data.create_pokemon(StatLayout::Standard, 2);
+        let target = data.create_pokemon(StatLayout::Standard, 3);
+        chain(&mut data, forme, from);
+        let original = HashMap::new();
+        let exceeded = exceeds_stage_limit(&mut data, from, target, 3, &original);
+        assert_eq!(exceeded, Ok(false));
+    }
 }

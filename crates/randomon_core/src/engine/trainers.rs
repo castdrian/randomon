@@ -5,11 +5,11 @@ use randomon_data::{MultiBattleStatus, PokemonId, Trainer, TrainerPokemon, Type,
 use randomon_java::JavaRng;
 use randomon_settings::{AbilitiesMod, MiscTweak, Settings, TrainersMod};
 
+use crate::engine::choose::{StrengthWindow, first_non_empty};
 use crate::engine::evolutions::{
     final_evos, fully_evolve, num_evolutions, set_evo_chain_as_illegal,
 };
 use crate::engine::pool::{check_pokemon_restrictions, non_cosmetic, pokemon_of_type_choice};
-use crate::engine::types::random_type;
 use crate::engine::util::{modified_level, pick, random_index, remove_all};
 use crate::error::{RandomizationError, Result};
 use crate::handler::RomHandler;
@@ -61,18 +61,39 @@ pub fn set_forme_for_trainer_pokemon<H: RomHandler + ?Sized>(
 }
 
 pub fn random_ability_slot<H: RomHandler + ?Sized>(handler: &H, pokemon: PokemonId) -> i32 {
-    let per_pokemon = handler.abilities_per_pokemon();
+    random_ability_slot_excluding(handler, pokemon, &[])
+}
+
+fn random_ability_slot_excluding<H: RomHandler + ?Sized>(
+    handler: &H,
+    pokemon: PokemonId,
+    excluded: &[i32],
+) -> i32 {
+    let per_pokemon = handler.abilities_per_pokemon().clamp(0, 3);
     if per_pokemon == 0 {
         return 0;
     }
     let pk = handler.core().data.pk(pokemon);
-    let slots = [pk.ability1, pk.ability2, pk.ability3];
+    let abilities = [pk.ability1, pk.ability2, pk.ability3];
     let mut random = handler.core().engine.random.clone();
-    let mut slot = random.next_int_bounded(per_pokemon);
-    while slots[slot as usize] == 0 {
-        slot = random.next_int_bounded(per_pokemon);
-    }
-    slot + 1
+    choose_ability_slot(&mut random, per_pokemon, abilities, excluded)
+}
+
+fn choose_ability_slot(
+    random: &mut impl JavaRng,
+    per_pokemon: i32,
+    abilities: [i32; 3],
+    excluded: &[i32],
+) -> i32 {
+    let filled: Vec<i32> = (1..=per_pokemon.clamp(0, 3))
+        .filter(|&slot| abilities[(slot - 1) as usize] != 0)
+        .collect();
+    let allowed: Vec<i32> = filled
+        .iter()
+        .copied()
+        .filter(|slot| !excluded.contains(slot))
+        .collect();
+    pick(random, &first_non_empty(&[&allowed, &filled, &[1]])).unwrap_or(1)
 }
 
 pub fn valid_ability_slot_from_original<H: RomHandler + ?Sized>(
@@ -106,38 +127,70 @@ fn placement_average<H: RomHandler + ?Sized>(handler: &H) -> f64 {
     sum as f64 / history.len() as f64
 }
 
-fn pick_type<H: RomHandler + ?Sized>(
-    handler: &mut H,
+struct TypeChoice {
     weight_by_frequency: bool,
     no_legendaries: bool,
     allow_alt_formes: bool,
+}
+
+fn ensure_type_weightings<H: RomHandler + ?Sized>(handler: &mut H, choice: &TypeChoice) {
+    if handler.core().engine.total_type_weighting != 0 {
+        return;
+    }
+    for &kind in Type::ALL {
+        if handler.type_in_game(kind) {
+            let count = pokemon_of_type_choice(
+                handler,
+                kind,
+                choice.no_legendaries,
+                choice.allow_alt_formes,
+            )
+            .len() as i32;
+            let engine = &mut handler.core_mut().engine;
+            engine.type_weightings.insert(kind, count);
+            engine.total_type_weighting += count;
+        }
+    }
+}
+
+fn pick_type<H: RomHandler + ?Sized>(
+    handler: &mut H,
+    choice: &TypeChoice,
+    excluded: &BTreeSet<Type>,
 ) -> Result<Option<Type>> {
-    if handler.core().engine.total_type_weighting == 0 {
-        for &kind in Type::ALL {
-            if handler.type_in_game(kind) {
-                let count = pokemon_of_type_choice(handler, kind, no_legendaries, allow_alt_formes)
-                    .len() as i32;
-                let engine = &mut handler.core_mut().engine;
-                engine.type_weightings.insert(kind, count);
-                engine.total_type_weighting += count;
-            }
-        }
+    ensure_type_weightings(handler, choice);
+    let populated: Vec<(Type, i32)> = handler
+        .core()
+        .engine
+        .type_weightings
+        .iter()
+        .filter(|&(_, &weight)| weight > 0)
+        .map(|(&kind, &weight)| (kind, weight))
+        .collect();
+    let fresh: Vec<(Type, i32)> = populated
+        .iter()
+        .copied()
+        .filter(|(kind, _)| !excluded.contains(kind))
+        .collect();
+    let candidates = if fresh.is_empty() { populated } else { fresh };
+    if candidates.is_empty() {
+        return Ok(None);
     }
-    if weight_by_frequency {
-        let mut random = handler.core().engine.random.clone();
-        let total = handler.core().engine.total_type_weighting;
-        let type_pick = random_index(&mut random, total.max(0) as usize)? as i32;
-        let mut position = 0;
-        for (&kind, &weight) in &handler.core().engine.type_weightings {
-            if position + weight > type_pick {
-                return Ok(Some(kind));
-            }
-            position += weight;
-        }
-        Ok(None)
-    } else {
-        Ok(Some(random_type(handler)))
+    let mut random = handler.core().engine.random.clone();
+    if !choice.weight_by_frequency {
+        let kinds: Vec<Type> = candidates.iter().map(|&(kind, _)| kind).collect();
+        return pick(&mut random, &kinds).map(Some);
     }
+    let total: i32 = candidates.iter().map(|&(_, weight)| weight).sum();
+    let type_pick = random_index(&mut random, total.max(1) as usize)? as i32;
+    let mut position = 0;
+    for &(kind, weight) in &candidates {
+        if position + weight > type_pick {
+            return Ok(Some(kind));
+        }
+        position += weight;
+    }
+    Ok(candidates.last().map(|&(kind, _)| kind))
 }
 
 pub struct ReplacementOptions {
@@ -238,54 +291,42 @@ fn pick_trainer_poke_replacement<H: RomHandler + ?Sized>(
     if !without_banned.is_empty() {
         pick_from = without_banned;
     }
-    let mut random = handler.core().engine.random.clone();
-    if options.use_power_levels {
-        let data = &handler.core().data;
-        let current_bst = data.pk(current).bst_for_power_levels();
-        let mut min_target = current_bst - current_bst / 10;
-        let mut max_target = current_bst + current_bst / 10;
-        let mut can_pick: Vec<PokemonId> = Vec::new();
-        let mut expand_rounds = 0;
-        while can_pick.is_empty() || (can_pick.len() < 3 && expand_rounds < 2) {
-            if pick_from.is_empty() && expand_rounds > 10_000 {
-                return Err(RandomizationError::EmptyChoice);
-            }
-            for &pokemon in &pick_from {
-                let bst = data.pk(pokemon).bst_for_power_levels();
-                if bst >= min_target
-                    && bst <= max_target
-                    && (options.wonder_guard_allowed || !has_wonder_guard(handler, pokemon))
-                {
-                    can_pick.push(pokemon);
-                }
-            }
-            min_target -= current_bst / 20;
-            max_target += current_bst / 20;
-            expand_rounds += 1;
-        }
-        let mut chosen = pick(&mut random, &can_pick)?;
-        if options.use_placement_history {
-            let average = placement_average(handler);
-            let mut filtered: Vec<PokemonId> = can_pick
-                .iter()
-                .copied()
-                .filter(|&pokemon| f64::from(placement_history(handler, pokemon)) < average)
-                .collect();
-            if filtered.is_empty() {
-                filtered = can_pick.clone();
-            }
-            chosen = pick(&mut random, &filtered)?;
-        }
-        Ok(chosen)
-    } else if options.wonder_guard_allowed {
-        pick(&mut random, &pick_from)
-    } else {
-        let mut chosen = pick(&mut random, &pick_from)?;
-        while has_wonder_guard(handler, chosen) {
-            chosen = pick(&mut random, &pick_from)?;
-        }
-        Ok(chosen)
+    if pick_from.is_empty() {
+        let engine = &handler.core().engine;
+        pick_from = first_non_empty(&[&engine.cached_all_list, &engine.pool.main, &[current]]);
     }
+    let mut random = handler.core().engine.random.clone();
+    let data = &handler.core().data;
+    let allowed =
+        |pokemon: PokemonId| options.wonder_guard_allowed || !has_wonder_guard(handler, pokemon);
+    let mut candidates: Vec<PokemonId> = pick_from
+        .iter()
+        .copied()
+        .filter(|&pokemon| allowed(pokemon))
+        .collect();
+    if candidates.is_empty() {
+        candidates = pick_from;
+    }
+    if !options.use_power_levels {
+        return pick(&mut random, &candidates);
+    }
+    let window = StrengthWindow::around(data.pk(current).bst_for_power_levels(), 3, 2);
+    let mut can_pick = window.candidates(data, &candidates, |_| true);
+    if can_pick.is_empty() {
+        can_pick = candidates;
+    }
+    if options.use_placement_history {
+        let average = placement_average(handler);
+        let filtered: Vec<PokemonId> = can_pick
+            .iter()
+            .copied()
+            .filter(|&pokemon| f64::from(placement_history(handler, pokemon)) < average)
+            .collect();
+        if !filtered.is_empty() {
+            can_pick = filtered;
+        }
+    }
+    pick(&mut random, &can_pick)
 }
 
 fn trainer_group(tag: Option<&str>) -> String {
@@ -324,6 +365,11 @@ pub fn randomize_trainer_pokes<H: RomHandler + ?Sized>(
     let force_challenge_mode =
         settings.current_misc_tweaks & MiscTweak::ForceChallengeMode.value() > 0;
     let rival_carries_starter = settings.rival_carries_starter_throughout;
+    let type_choice = TypeChoice {
+        weight_by_frequency,
+        no_legendaries,
+        allow_alt_formes: include_formes,
+    };
     check_pokemon_restrictions(handler);
 
     let mut cached_all = {
@@ -385,22 +431,21 @@ pub fn randomize_trainer_pokes<H: RomHandler + ?Sized>(
         }
         let mut used_gym_types: BTreeSet<Type> = BTreeSet::new();
         let mut used_elite_types: BTreeSet<Type> = BTreeSet::new();
+        let no_exclusions = BTreeSet::new();
         for (group, members) in groups.iter_mut() {
             randomon_java::shuffle(members, &mut random);
-            let mut type_for_group =
-                pick_type(handler, weight_by_frequency, no_legendaries, include_formes)?;
+            let excluded = if group.starts_with("GYM") {
+                &used_gym_types
+            } else if group.starts_with("ELITE") {
+                &used_elite_types
+            } else {
+                &no_exclusions
+            };
+            let type_for_group = pick_type(handler, &type_choice, excluded)?;
             if group.starts_with("GYM") {
-                while type_for_group.is_some_and(|kind| used_gym_types.contains(&kind)) {
-                    type_for_group =
-                        pick_type(handler, weight_by_frequency, no_legendaries, include_formes)?;
-                }
                 used_gym_types.extend(type_for_group);
             }
             if group.starts_with("ELITE") {
-                while type_for_group.is_some_and(|kind| used_elite_types.contains(&kind)) {
-                    type_for_group =
-                        pick_type(handler, weight_by_frequency, no_legendaries, include_formes)?;
-                }
                 used_elite_types.extend(type_for_group);
             }
             if group == "CHAMPION" {
@@ -432,13 +477,7 @@ pub fn randomize_trainer_pokes<H: RomHandler + ?Sized>(
         scrambled.sort_by_key(|&position| std::cmp::Reverse(is_elite(position)));
         illegal_evo_chains = force_fully_evolved;
         if rival_carries_starter {
-            let starters = handler.get_starters();
-            if starters.len() < 3 {
-                return Err(RandomizationError::IndexOutOfBounds(
-                    "getStarters().subList(0, 3)",
-                ));
-            }
-            let starters = starters[..3].to_vec();
+            let starters: Vec<PokemonId> = handler.get_starters().into_iter().take(3).collect();
             let has_rival_final_battle = handler.has_rival_final_battle();
             for starter in starters {
                 banned_from_unique.push(starter);
@@ -475,14 +514,11 @@ pub fn randomize_trainer_pokes<H: RomHandler + ?Sized>(
         }
         let mut type_for_trainer = trainer_types.get(&(trainer_index as usize)).copied();
         if type_for_trainer.is_none() && is_type_themed {
-            type_for_trainer =
-                pick_type(handler, weight_by_frequency, no_legendaries, include_formes)?;
             if tag.as_deref() == Some("UBER") {
-                while type_for_trainer.is_some_and(|kind| used_uber_types.contains(&kind)) {
-                    type_for_trainer =
-                        pick_type(handler, weight_by_frequency, no_legendaries, include_formes)?;
-                }
+                type_for_trainer = pick_type(handler, &type_choice, &used_uber_types)?;
                 used_uber_types.extend(type_for_trainer);
+            } else {
+                type_for_trainer = pick_type(handler, &type_choice, &BTreeSet::new())?;
             }
         }
         let mut evolves_into_wrong_type: Vec<PokemonId> = Vec::new();
@@ -606,8 +642,10 @@ pub fn randomize_trainer_pokes<H: RomHandler + ?Sized>(
                     .pk(new_pokemon)
                     .mega_evolutions_from
                     .clone();
-                let chosen = pick(&mut random, &megas)?;
-                tp.held_item = handler.core().data.mega(chosen).argument;
+                if !megas.is_empty() {
+                    let chosen = pick(&mut random, &megas)?;
+                    tp.held_item = handler.core().data.mega(chosen).argument;
+                }
             }
             if shiny_chance && random.next_int_bounded(256) == 0 {
                 tp.ivs |= 1 << 30;
@@ -719,13 +757,18 @@ pub fn randomize_trainer_held_items<H: RomHandler + ?Sized>(
                 let moveset = moveset_for_items(handler, &trainer.pokemon[slot], &movesets)?;
                 randomize_held_item(handler, &mut trainer.pokemon[slot], settings, &moveset)?;
                 if trainer.requires_unique_held_items {
-                    while !trainer.pokemon_have_unique_held_items() {
+                    let mut attempts = 0;
+                    while !trainer.pokemon_have_unique_held_items() && attempts < 100 {
                         randomize_held_item(
                             handler,
                             &mut trainer.pokemon[slot],
                             settings,
                             &moveset,
                         )?;
+                        attempts += 1;
+                    }
+                    if !trainer.pokemon_have_unique_held_items() {
+                        trainer.pokemon[slot].held_item = 0;
                     }
                 }
             }
@@ -745,13 +788,10 @@ fn pick_random_evolution_of<H: RomHandler + ?Sized>(
         .into_iter()
         .filter(|&target| !must_evolve_itself || !data.evolutions_from(target).is_empty())
         .collect();
-    if candidates.is_empty() {
-        return Err(RandomizationError::randomization(
-            "Random evolution called on a Pokemon without any usable evolutions.",
-        ));
-    }
+    let targets = data.evolution_targets(base);
+    let choices = first_non_empty(&[&candidates, &targets, &[base]]);
     let mut random = handler.core().engine.random.clone();
-    pick(&mut random, &candidates)
+    pick(&mut random, &choices)
 }
 
 fn level_of_starter(trainers: &[Trainer], tag: &str) -> i32 {
@@ -838,7 +878,10 @@ fn rival_carries_starter_update<H: RomHandler + ?Sized>(
     }
     let starters = handler.get_starters();
     if handler.is_yellow() {
-        let mut rival_starter = starters[1];
+        let Some(&rival_starter) = starters.get(1).or_else(|| starters.first()) else {
+            return Ok(());
+        };
+        let mut rival_starter = rival_starter;
         let times_evolves = num_evolutions(&handler.core().data, rival_starter, 2);
         let ability_slot = 0;
         if times_evolves == 0 {
@@ -927,13 +970,14 @@ fn rival_carries_starter_update<H: RomHandler + ?Sized>(
         return Ok(());
     }
     for i in 0..3 {
-        let starter_to_use = ((i + pokemon_offset) % 3) as usize;
-        let mut this_starter = starters[starter_to_use];
+        let Some(&this_starter) =
+            starters.get(((i + pokemon_offset) % 3) as usize % starters.len().max(1))
+        else {
+            return Ok(());
+        };
+        let mut this_starter = this_starter;
         let times_evolves = num_evolutions(&handler.core().data, this_starter, 2);
-        let mut ability_slot = random_ability_slot(handler, this_starter);
-        while ability_slot == 3 {
-            ability_slot = random_ability_slot(handler, this_starter);
-        }
+        let ability_slot = random_ability_slot_excluding(handler, this_starter, &[3]);
         let tag = |j: i32| format!("{prefix}{j}-{i}");
         if times_evolves == 0 {
             for j in 1..=highest {
@@ -1100,4 +1144,30 @@ pub fn double_battle_mode<H: RomHandler + ?Sized>(handler: &mut H) -> Result<()>
         trainer.pokemon.push(copy);
     }
     handler.set_trainers(&trainers, true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use randomon_java::JavaRandom;
+
+    #[test]
+    fn ability_slot_falls_back_when_every_ability_is_empty() {
+        let mut random = JavaRandom::new(3);
+        assert_eq!(choose_ability_slot(&mut random, 3, [0, 0, 0], &[]), 1);
+    }
+
+    #[test]
+    fn ability_slot_skips_empty_and_excluded_slots() {
+        let mut random = JavaRandom::new(3);
+        for _ in 0..20 {
+            assert_eq!(choose_ability_slot(&mut random, 3, [5, 0, 9], &[3]), 1);
+        }
+    }
+
+    #[test]
+    fn ability_slot_uses_an_excluded_slot_when_it_is_the_only_one() {
+        let mut random = JavaRandom::new(3);
+        assert_eq!(choose_ability_slot(&mut random, 3, [0, 0, 9], &[3]), 3);
+    }
 }

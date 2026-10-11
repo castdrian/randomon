@@ -393,8 +393,12 @@ impl<R: Read + Seek> NdsRom<R> {
             let mut needle = [0u8; 4];
             write_le_sized(&mut needle, 0, 4, length.wrapping_add(self.arm9_ram_offset));
             let found = search(arm9, &needle)?;
+            let params = module_params_size_offset(arm9);
             match found.as_slice() {
                 [only] => self.arm9.size_offset = *only,
+                many if params.is_some_and(|offset| many.contains(&offset)) => {
+                    self.arm9.size_offset = params.unwrap_or_default();
+                }
                 _ => {
                     return Err(FormatError::invalid(
                         CONTEXT,
@@ -716,4 +720,12 @@ fn directory_paths(
         paths.insert(directory as i32 + 0xF000, components.join("/"));
     }
     Ok(paths)
+}
+
+const NITROCODE_MAGIC: [u8; 8] = [0x21, 0x06, 0xC0, 0xDE, 0xDE, 0xC0, 0x06, 0x21];
+
+fn module_params_size_offset(arm9: &[u8]) -> Option<usize> {
+    arm9.windows(NITROCODE_MAGIC.len())
+        .position(|window| window == NITROCODE_MAGIC)
+        .and_then(|magic| magic.checked_sub(8))
 }
