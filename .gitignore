@@ -10,3 +10,4 @@
 *.cxi
 /roms
 /.claude/worktrees
+.next-version

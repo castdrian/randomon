@@ -1,0 +1,55 @@
+[[rows]]
+label = "Generation 1 · Game Boy"
+value = "Red, Blue, Yellow"
+status = "verified"
+
+[[rows]]
+label = "Generation 2 · Game Boy Color"
+value = "Gold, Silver, Crystal"
+status = "verified"
+
+[[rows]]
+label = "Generation 3 · Game Boy Advance"
+value = "Ruby, Sapphire, Emerald, FireRed, LeafGreen"
+status = "unsupported"
+
+[[rows]]
+label = "Generation 4 · Nintendo DS"
+value = "Diamond, Pearl, Platinum, HeartGold, SoulSilver"
+status = "unsupported"
+
+[[rows]]
+label = "Generation 5 · Nintendo DS"
+value = "Black, White, Black 2, White 2"
+status = "verified"
+
+[[rows]]
+label = "Generation 6 · Nintendo 3DS"
+value = "X, Y, Omega Ruby, Alpha Sapphire"
+status = "partial"
+
+[[rows]]
+label = "Generation 7 · Nintendo 3DS"
+value = "Sun, Moon, Ultra Sun, Ultra Moon"
+status = "partial"
+
+[[rows]]
+label = "Generation 8 · Nintendo Switch"
+value = "Brilliant Diamond, Shining Pearl"
+status = "partial"
+
+[[legend]]
+status = "verified"
+description = "Tested against real games"
+
+[[legend]]
+status = "partial"
+description = "Works, testing in progress"
+
+[[legend]]
+status = "untested"
+description = "Ported but not tested yet"
+
+[[legend]]
+status = "unsupported"
+description = "Not supported yet"
