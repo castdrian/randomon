@@ -77,6 +77,9 @@ fn title_key<R: Read + Seek>(source: &mut R, ticket_body: i64, keys: &KeyStore) 
         8,
     )?);
     let index = read_exact_at(source, at(ticket_body + TICKET_COMMON_KEY_INDEX)?, 1)?[0] as usize;
+    if keys.is_empty() && !keys.pending_downloads().is_empty() {
+        return Err(keys.missing_keys_error().into());
+    }
     let common = keys
         .common_key(index)
         .ok_or(CryptoError::MissingCommonKeys)?;

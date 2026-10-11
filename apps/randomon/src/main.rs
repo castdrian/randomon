@@ -7,6 +7,7 @@ mod capabilities;
 mod debug;
 mod engine;
 mod game_picker;
+mod keys;
 mod options;
 mod rom;
 mod section;

@@ -168,7 +168,7 @@ fn ncch_keys(header: &[u8], keys: &KeyStore) -> Result<NcchKeys> {
         .try_into()
         .map_err(|_| CryptoError::UnknownCryptoMethod(method))?;
     if keys.is_empty() {
-        return Err(CryptoError::MissingKeys.into());
+        return Err(keys.missing_keys_error().into());
     }
     let primary = keys
         .normal_key(NCCH_PRIMARY_SLOT, &key_y)
