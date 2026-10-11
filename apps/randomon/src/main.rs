@@ -5,6 +5,7 @@ mod bdsp;
 mod bundle;
 mod capabilities;
 mod cli_handoff;
+mod config;
 mod debug;
 mod engine;
 mod game_picker;
@@ -15,6 +16,7 @@ mod section;
 mod settings_files;
 mod support;
 mod ui;
+mod updater;
 
 fn main() -> std::process::ExitCode {
     let arguments = cli_handoff::command_line_arguments();

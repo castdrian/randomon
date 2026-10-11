@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use randomon_formats::ctr::crypto::{self, AES_KEYS_ENV, KeyStore};
 
-const CONFIG_DIRECTORY: &str = "randomon";
-const CONFIG_FILE: &str = "config.txt";
+use crate::config::{ConfigFile, environment_directory};
+
 const AES_KEYS_ENTRY: &str = "aes_keys";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,62 +16,15 @@ pub fn needs_keys(message: &str) -> bool {
     crypto::is_key_problem_message(message)
 }
 
-fn environment_directory(name: &str) -> Option<PathBuf> {
-    std::env::var_os(name)
-        .filter(|value| !value.is_empty())
+fn remembered_keys_path() -> Option<PathBuf> {
+    ConfigFile::standard()?
+        .read(AES_KEYS_ENTRY)
         .map(PathBuf::from)
 }
 
-fn config_directory() -> Option<PathBuf> {
-    let base = if cfg!(target_os = "windows") {
-        environment_directory("APPDATA")
-    } else if cfg!(target_os = "macos") {
-        environment_directory("HOME").map(|home| home.join("Library").join("Application Support"))
-    } else {
-        environment_directory("XDG_CONFIG_HOME")
-            .or_else(|| environment_directory("HOME").map(|home| home.join(".config")))
-    };
-    base.map(|base| base.join(CONFIG_DIRECTORY))
-}
-
-fn config_path() -> Option<PathBuf> {
-    config_directory().map(|directory| directory.join(CONFIG_FILE))
-}
-
-fn parse_keys_entry(config: &str) -> Option<PathBuf> {
-    config.lines().find_map(|line| {
-        let (key, value) = line.split_once('=')?;
-        (key.trim() == AES_KEYS_ENTRY && !value.trim().is_empty())
-            .then(|| PathBuf::from(value.trim()))
-    })
-}
-
-fn with_keys_entry(config: &str, keys: &Path) -> String {
-    let mut lines: Vec<String> = config
-        .lines()
-        .filter(|line| {
-            line.split_once('=')
-                .is_none_or(|(key, _)| key.trim() != AES_KEYS_ENTRY)
-        })
-        .map(str::to_owned)
-        .collect();
-    lines.push(format!("{AES_KEYS_ENTRY}={}", keys.display()));
-    lines.join("\n") + "\n"
-}
-
-fn remembered_keys_path() -> Option<PathBuf> {
-    let text = std::fs::read_to_string(config_path()?).ok()?;
-    parse_keys_entry(&text)
-}
-
 fn remember(keys: &Path) -> Result<(), String> {
-    let path = config_path().ok_or("randomon couldn't find a folder for its settings.")?;
-    if let Some(directory) = path.parent() {
-        std::fs::create_dir_all(directory)
-            .map_err(|error| format!("Couldn't save the keys location: {error}"))?;
-    }
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    std::fs::write(&path, with_keys_entry(&existing, keys))
+    let file = ConfigFile::standard().ok_or("randomon couldn't find a folder for its settings.")?;
+    file.write(AES_KEYS_ENTRY, &keys.display().to_string())
         .map_err(|error| format!("Couldn't save the keys location: {error}"))
 }
 
@@ -111,15 +64,6 @@ pub async fn pick_keys_file() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn keys_entry_round_trips_and_keeps_other_settings() {
-        let keys = PathBuf::from("/keys/aes_keys.txt");
-        let config = with_keys_entry("theme=dark\naes_keys=/old/aes_keys.txt\n", &keys);
-        assert_eq!(config, "theme=dark\naes_keys=/keys/aes_keys.txt\n");
-        assert_eq!(parse_keys_entry(&config), Some(keys));
-        assert_eq!(parse_keys_entry("theme=dark\n"), None);
-    }
 
     #[test]
     fn only_key_problems_offer_a_keys_file() {

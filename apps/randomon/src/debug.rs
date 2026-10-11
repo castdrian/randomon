@@ -10,6 +10,8 @@ pub struct DebugBoot {
     pub search: Option<String>,
     pub dialog: Option<String>,
     pub update_version: Option<String>,
+    pub app_update: Option<String>,
+    pub app_update_stage: Option<String>,
 }
 
 impl DebugBoot {
@@ -21,6 +23,8 @@ impl DebugBoot {
             search: variable("RANDOMON_DEBUG_SEARCH"),
             dialog: variable("RANDOMON_DEBUG_DIALOG"),
             update_version: variable("RANDOMON_DEBUG_UPDATE_VERSION"),
+            app_update: variable("RANDOMON_DEBUG_APP_UPDATE"),
+            app_update_stage: variable("RANDOMON_DEBUG_APP_UPDATE_STAGE"),
         }
     }
 }

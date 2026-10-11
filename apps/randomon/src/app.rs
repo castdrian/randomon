@@ -25,6 +25,7 @@ use crate::ui::choices::{self, StarterChoice};
 use crate::ui::dialogs::{Dialog, DialogMessage, Feedback, GenerationLimitDraft, NamesTab};
 use crate::ui::options_view::OptionMessage;
 use crate::ui::theme;
+use crate::updater::{Updater, UpdaterMessage};
 use game_update::GameUpdate;
 
 const SEED_SPACE: u64 = 1 << 48;
@@ -60,6 +61,7 @@ struct Randomon {
     status: Option<Status>,
     randomizing: bool,
     bdsp: Option<BdspSession>,
+    updater: Updater,
 }
 
 #[derive(Debug, Clone)]
@@ -108,6 +110,7 @@ enum Message {
     ChooseKeysFile,
     KeysFilePicked(Option<PathBuf>),
     Bdsp(BdspMessage),
+    Updater(UpdaterMessage),
 }
 
 impl Randomon {
@@ -132,6 +135,7 @@ impl Randomon {
             status: None,
             randomizing: false,
             bdsp: None,
+            updater: Updater::new(),
         };
         state.settings_changed();
         state
@@ -142,12 +146,24 @@ impl Randomon {
         let mut state = Self::new();
         let boot = DebugBoot::from_env();
         let opens_picker = boot.dialog.as_deref() == Some("open-game");
+        let update_check = match &boot.app_update {
+            Some(version) => {
+                state
+                    .updater
+                    .preview(version, boot.app_update_stage.as_deref());
+                Task::none()
+            }
+            None => state.updater.on_launch().map(Message::Updater),
+        };
         state.apply_debug_boot(boot);
         let theme = iced::system::theme().map(Message::SystemThemeChanged);
         if opens_picker {
-            return (state, Task::batch([theme, Task::done(Message::OpenGame)]));
+            return (
+                state,
+                Task::batch([theme, update_check, Task::done(Message::OpenGame)]),
+            );
         }
-        (state, theme)
+        (state, Task::batch([theme, update_check]))
     }
 
     fn apply_debug_boot(&mut self, boot: DebugBoot) {
@@ -290,6 +306,12 @@ impl Randomon {
             Message::Bdsp(BdspMessage::Close) => self.bdsp = None,
             Message::Bdsp(BdspMessage::OpenGame) => {
                 return Task::perform(game_picker::pick_game(), Message::GamePicked);
+            }
+            Message::Updater(message) => {
+                return self
+                    .updater
+                    .update(message, self.randomizing)
+                    .map(Message::Updater);
             }
             Message::Bdsp(message) => {
                 if let Some(session) = &mut self.bdsp {

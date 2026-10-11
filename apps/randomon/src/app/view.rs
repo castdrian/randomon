@@ -69,11 +69,13 @@ impl Randomon {
     fn sidebar(&self) -> Element<'_, Message> {
         let brand = column![
             text("randomon").size(22).font(SEMIBOLD),
-            text(format!("v{}", env!("CARGO_PKG_VERSION")))
-                .size(12)
-                .style(style::muted_text),
+            self.updater.version_line().map(Message::Updater),
         ]
         .spacing(2);
+        let update_banner = self
+            .updater
+            .banner()
+            .map(|banner| banner.map(Message::Updater));
 
         let search = text_input("Search options", &self.search)
             .on_input(Message::SearchChanged)
@@ -149,16 +151,17 @@ impl Randomon {
         .spacing(SPACE_1);
 
         container(
-            column![
-                brand,
-                search,
-                navigation,
-                tools,
-                space::vertical(),
-                support_links
-            ]
-            .spacing(SPACE_2)
-            .height(Fill),
+            column![brand]
+                .push(update_banner)
+                .push(search)
+                .extend([
+                    navigation.into(),
+                    tools.into(),
+                    space::vertical().into(),
+                    support_links.into(),
+                ])
+                .spacing(SPACE_2)
+                .height(Fill),
         )
         .width(260)
         .height(Fill)
