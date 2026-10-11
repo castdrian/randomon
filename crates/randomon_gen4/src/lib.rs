@@ -20,7 +20,11 @@ use randomon_core::{Result, RomHandler, RomHandlerFactory};
 use randomon_java::SharedRandomSource;
 
 pub use handler::{Gen4RomHandler, detect_rom};
-pub use rom_entry::{RomEntry, ScriptEntry, StaticPokemonEntry, entry_for, rom_entries};
+pub use patches::patch_bytes;
+pub use rom_entry::{
+    RoamingPokemonEntry, RomEntry, ScriptEntry, StaticPokemonEntry, TextEntry, entry_for,
+    rom_entries,
+};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Gen4Factory;
