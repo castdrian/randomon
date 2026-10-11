@@ -827,3 +827,49 @@ pub fn randomize_evolutions_every_level<H: RomHandler + ?Sized>(
     share_cosmetic_evolutions(&mut handler.core_mut().data, &cosmetic_pool);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use randomon_data::StatLayout;
+
+    fn chain(data: &mut GameData, from: PokemonId, to: PokemonId) {
+        let id = data.new_evolution(Evolution::new(from, to, true, EvolutionType::Level, 10));
+        data.evolutions_from_mut(from).push(id);
+        data.evolutions_to_mut(to).push(id);
+    }
+
+    fn cycle() -> (GameData, Vec<PokemonId>) {
+        let mut data = GameData::new();
+        let ids: Vec<PokemonId> = (1..=3)
+            .map(|number| data.create_pokemon(StatLayout::Standard, number))
+            .collect();
+        chain(&mut data, ids[0], ids[1]);
+        chain(&mut data, ids[1], ids[2]);
+        chain(&mut data, ids[2], ids[0]);
+        (data, ids)
+    }
+
+    #[test]
+    fn chain_walks_terminate_on_evolution_cycles() {
+        let (data, ids) = cycle();
+        assert!(final_evos(&data, ids[0]).is_empty());
+        assert_eq!(pre_evolution_chain(&data, ids[0]).len(), 2);
+        assert_eq!(evolutionary_relatives(&data, ids[0]).len(), 2);
+        let mut illegal = Vec::new();
+        set_evo_chain_as_illegal(&data, ids[0], &mut illegal, true);
+        assert_eq!(illegal.len(), 4);
+    }
+
+    #[test]
+    fn stage_limit_tolerates_pokemon_outside_the_original_pool() {
+        let mut data = GameData::new();
+        let from = data.create_pokemon(StatLayout::Standard, 1);
+        let forme = data.create_pokemon(StatLayout::Standard, 2);
+        let target = data.create_pokemon(StatLayout::Standard, 3);
+        chain(&mut data, forme, from);
+        let original = HashMap::new();
+        let exceeded = exceeds_stage_limit(&mut data, from, target, 3, &original);
+        assert_eq!(exceeded, Ok(false));
+    }
+}

@@ -186,7 +186,6 @@ mod tests {
             preference: &[0],
             share_identical: true,
             share_leading_zero: true,
-            ..Placement::default()
         };
         assert_eq!(packer.place(&[1, 0], sharing), Some(0));
         assert_eq!(packer.place(&[0, 2, 0], sharing), Some(1));
