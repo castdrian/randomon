@@ -1,3 +1,11 @@
+## [1.1.0](https://github.com/castdrian/randomon/compare/v1.0.0...v1.1.0) (2026-10-11)
+
+### Features
+
+* **3ds:** decrypt encrypted NCCH ROMs and CIA updates transparently ([5376edb](https://github.com/castdrian/randomon/commit/5376edb536db79ac4b39f6cdd9f9f00fe8cde602))
+* **3ds:** search iCloud Drive for keys and let the app choose a keys file ([1d2e6f0](https://github.com/castdrian/randomon/commit/1d2e6f0256ad48f6144c8622148c0c65410e5903))
+* **app:** unify game opening, add update chip and settings sharing dialog ([4ffb605](https://github.com/castdrian/randomon/commit/4ffb6052118f14d4fdbc24320cb3aa4956e0a7b3))
+
 ## 1.0.0 (2026-10-11)
 
 ### Features
