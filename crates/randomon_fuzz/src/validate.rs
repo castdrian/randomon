@@ -11,6 +11,7 @@ const MAX_PARTY: usize = 6;
 pub struct Baseline {
     pub trainer_count: usize,
     pub encounter_set_count: usize,
+    pub seasonal_encounter_set_count: usize,
     pub static_count: usize,
     pub trade_count: usize,
     pub tm_count: usize,
@@ -25,7 +26,8 @@ impl Baseline {
                 .get_trainers()
                 .map_err(|error| format!("baseline trainers: {error}"))?
                 .len(),
-            encounter_set_count: handler.get_encounters(true).len(),
+            encounter_set_count: handler.get_encounters(false).len(),
+            seasonal_encounter_set_count: handler.get_encounters(true).len(),
             static_count: handler.get_static_pokemon().len(),
             trade_count: handler.get_ingame_trades().len(),
             tm_count: handler.get_tm_moves().len(),
@@ -69,11 +71,16 @@ pub fn validate(handler: &dyn RomHandler, settings: &Settings, baseline: &Baseli
         &item_ok,
     );
 
-    let encounters = handler.get_encounters(true);
-    report.check(encounters.len() == baseline.encounter_set_count, || {
+    let seasonal = settings.use_time_based_encounters;
+    let expected_sets = if seasonal {
+        baseline.seasonal_encounter_set_count
+    } else {
+        baseline.encounter_set_count
+    };
+    let encounters = handler.get_encounters(seasonal);
+    report.check(encounters.len() == expected_sets, || {
         format!(
-            "encounter sets changed from {} to {}",
-            baseline.encounter_set_count,
+            "encounter sets changed from {expected_sets} to {}",
             encounters.len()
         )
     });

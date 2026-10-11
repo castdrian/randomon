@@ -289,7 +289,7 @@ fn pick_trainer_poke_replacement<H: RomHandler + ?Sized>(
     if !options.use_power_levels {
         return pick(&mut random, &candidates);
     }
-    let window = StrengthWindow::new(data.pk(current).bst_for_power_levels(), 3, 2);
+    let window = StrengthWindow::around(data.pk(current).bst_for_power_levels(), 3, 2);
     let mut can_pick = window.candidates(data, &candidates, |_| true);
     if can_pick.is_empty() {
         can_pick = candidates;
@@ -621,8 +621,10 @@ pub fn randomize_trainer_pokes<H: RomHandler + ?Sized>(
                     .pk(new_pokemon)
                     .mega_evolutions_from
                     .clone();
-                let chosen = pick(&mut random, &megas)?;
-                tp.held_item = handler.core().data.mega(chosen).argument;
+                if !megas.is_empty() {
+                    let chosen = pick(&mut random, &megas)?;
+                    tp.held_item = handler.core().data.mega(chosen).argument;
+                }
             }
             if shiny_chance && random.next_int_bounded(256) == 0 {
                 tp.ivs |= 1 << 30;
