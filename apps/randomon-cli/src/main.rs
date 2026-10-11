@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Parser;
-use randomon_core::{HandlerRegistry, RandomizationOptions, RomOutput, write_directory_output};
+use randomon_core::{
+    HandlerRegistry, RandomizationError, RandomizationOptions, RomOutput, write_directory_output,
+};
 use randomon_gen1::Gen1Factory;
 use randomon_gen2::Gen2Factory;
 use randomon_gen3::Gen3Factory;
@@ -66,6 +68,13 @@ struct Arguments {
         help = "3DS game update (.cia) to apply first; forces LayeredFS output"
     )]
     game_update: Option<PathBuf>,
+
+    #[arg(
+        long = "aes-keys",
+        value_name = "AES_KEYS_FILE",
+        help = "aes_keys.txt (or boot9.bin) used to decrypt encrypted 3DS ROMs and updates"
+    )]
+    aes_keys: Option<PathBuf>,
 
     #[arg(short = 'l', help = "Also write the randomization log")]
     save_log: bool,
@@ -144,16 +153,26 @@ fn run(arguments: Arguments) -> Result<(), String> {
             layout: arguments.layout.as_deref(),
         });
     }
+    if let Some(keys) = &arguments.aes_keys {
+        randomon_formats::ctr::crypto::set_aes_keys_path(Some(absolute(keys)));
+    }
     let settings = load_settings(&arguments)?;
     let registry = registry();
     let input = absolute(&arguments.input);
     let input_name = input.to_string_lossy().into_owned();
-    let game = registry.game_info_file(&input, &input_name).map_err(|_| {
-        format!(
-            "Could not load {} - it is not a supported ROM yet.",
-            file_name_of(&input)
-        )
-    })?;
+    let game = registry
+        .game_info_file(&input, &input_name)
+        .map_err(|error| match error {
+            RandomizationError::Randomization(message) | RandomizationError::Io(message)
+                if registry.detect_file(&input).is_some() =>
+            {
+                message
+            }
+            _ => format!(
+                "Could not load {} - it is not a supported ROM yet.",
+                file_name_of(&input)
+            ),
+        })?;
     let save_as_directory = output_mode(&arguments, game.generation);
     let output = if save_as_directory {
         arguments.output.clone()

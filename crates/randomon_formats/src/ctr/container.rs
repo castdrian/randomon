@@ -20,12 +20,13 @@ pub fn align_int(value: i32, alignment: i32) -> i32 {
     value.wrapping_add(alignment - 1) & mask
 }
 
-struct CiaLayout {
-    tmd_offset: i64,
-    content_offset: i64,
+pub(crate) struct CiaLayout {
+    pub ticket_offset: i64,
+    pub tmd_offset: i64,
+    pub content_offset: i64,
 }
 
-fn cia_layout<R: Read + Seek>(source: &mut R) -> Result<CiaLayout> {
+pub(crate) fn cia_layout<R: Read + Seek>(source: &mut R) -> Result<CiaLayout> {
     let cert_chain_size = read_i32_le_at(source, 0x08)? as i64;
     let ticket_size = read_i32_le_at(source, 0x0C)? as i64;
     let tmd_file_size = read_i32_le_at(source, 0x10)? as i64;
@@ -34,6 +35,7 @@ fn cia_layout<R: Read + Seek>(source: &mut R) -> Result<CiaLayout> {
     let tmd_offset = align_long(ticket_offset + ticket_size, 64);
     let content_offset = align_long(tmd_offset + tmd_file_size, 64);
     Ok(CiaLayout {
+        ticket_offset,
         tmd_offset,
         content_offset,
     })
@@ -64,15 +66,24 @@ pub fn read_cia_version<R: Read + Seek>(source: &mut R) -> Result<i32> {
         return Ok(0);
     }
     let layout = cia_layout(source)?;
-    let signature_type = read_i32_be_at(source, offset_from(layout.tmd_offset)?)?;
+    let Some(tmd_header_offset) = signed_body_offset(source, layout.tmd_offset)? else {
+        return Ok(0);
+    };
+    read_u16_be_at(source, offset_from(tmd_header_offset + 0x9C)?)
+}
+
+pub(crate) fn signed_body_offset<R: Read + Seek>(
+    source: &mut R,
+    signed_offset: i64,
+) -> Result<Option<i64>> {
+    let signature_type = read_i32_be_at(source, offset_from(signed_offset)?)?;
     let (signature_size, padding_size) = match signature_type {
         0x010003 => (0x200, 0x3C),
         0x010004 => (0x100, 0x3C),
         0x010005 => (0x3C, 0x40),
-        _ => return Ok(0),
+        _ => return Ok(None),
     };
-    let tmd_header_offset = layout.tmd_offset + 4 + signature_size + padding_size;
-    read_u16_be_at(source, offset_from(tmd_header_offset + 0x9C)?)
+    Ok(Some(signed_offset + 4 + signature_size + padding_size))
 }
 
 fn read_lenient<R: Read + Seek>(source: &mut R, offset: u64, length: usize) -> Result<Vec<u8>> {

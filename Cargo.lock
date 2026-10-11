@@ -3261,6 +3261,7 @@ dependencies = [
  "clap",
  "randomon_bdsp",
  "randomon_core",
+ "randomon_formats",
  "randomon_gen1",
  "randomon_gen2",
  "randomon_gen3",

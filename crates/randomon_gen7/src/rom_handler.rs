@@ -183,7 +183,10 @@ impl RomHandler for Gen7RomHandler {
     }
 
     fn load_game_update(&mut self, path: &Path) -> Result<()> {
-        self.rom.get_mut().load_update(open_file_source(path)?)?;
+        let file_name = path.to_string_lossy();
+        self.rom
+            .get_mut()
+            .load_named_update(open_file_source(path)?, &file_name)?;
         self.loaded_rom()
     }
 

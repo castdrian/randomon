@@ -5,6 +5,7 @@ use std::path::Path;
 
 use randomon_core::{OutputFile, RandomizationError, Result};
 use randomon_formats::FormatError;
+use randomon_formats::ctr::crypto::CryptoError;
 use randomon_formats::ctr::ncch::diagnostics_lines;
 use randomon_formats::ctr::{Decompression, GarcArchive, Ncch, container};
 
@@ -14,10 +15,64 @@ impl<T: Read + Seek + Send> RomSource for T {}
 
 pub type BoxedSource = Box<dyn RomSource>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RomInput {
+    BaseRom,
+    GameUpdate,
+}
+
+impl RomInput {
+    pub fn subject(self, file_name: &str) -> String {
+        let name = display_name(file_name);
+        if name.is_empty() {
+            return match self {
+                RomInput::BaseRom => "The ROM".to_owned(),
+                RomInput::GameUpdate => "The game update".to_owned(),
+            };
+        }
+        match self {
+            RomInput::BaseRom => format!("The ROM \u{201C}{name}\u{201D}"),
+            RomInput::GameUpdate => format!("The game update \u{201C}{name}\u{201D}"),
+        }
+    }
+
+    pub fn noun(self) -> &'static str {
+        match self {
+            RomInput::BaseRom => "ROM",
+            RomInput::GameUpdate => "update",
+        }
+    }
+
+    pub fn encrypted_message(self, file_name: &str) -> String {
+        CryptoError::MissingKeys.message_for(&self.subject(file_name), self.noun())
+    }
+
+    pub fn load_error(self, file_name: &str, error: FormatError) -> RandomizationError {
+        let subject = self.subject(file_name);
+        match error {
+            FormatError::Crypto(crypto) => {
+                RandomizationError::randomization(crypto.message_for(&subject, self.noun()))
+            }
+            FormatError::EncryptedRom(_) => {
+                RandomizationError::randomization(self.encrypted_message(file_name))
+            }
+            other => RandomizationError::Io(format!("{subject} could not be read: {other}")),
+        }
+    }
+}
+
+fn display_name(file_name: &str) -> String {
+    Path::new(file_name).file_name().map_or_else(
+        || file_name.to_owned(),
+        |name| name.to_string_lossy().into_owned(),
+    )
+}
+
 pub fn format_error(error: FormatError) -> RandomizationError {
     match error {
+        FormatError::Crypto(crypto) => RandomizationError::randomization(crypto.to_string()),
         FormatError::EncryptedRom(_) => {
-            RandomizationError::randomization(format!("EncryptedROMException: {error}"))
+            RandomizationError::randomization(CryptoError::MissingKeys.to_string())
         }
         other => RandomizationError::Io(other.to_string()),
     }
@@ -62,13 +117,17 @@ pub fn bytes_source(rom: Vec<u8>) -> BoxedSource {
     Box::new(Cursor::new(rom))
 }
 
-fn open_ncch(mut source: BoxedSource) -> Result<Ncch<BoxedSource>> {
+fn open_ncch(
+    mut source: BoxedSource,
+    input: RomInput,
+    file_name: &str,
+) -> Result<Ncch<BoxedSource>> {
     let identity = identify(&mut source);
-    let mut ncch =
-        Ncch::open(source, identity.product_code, identity.title_id).map_err(format_error)?;
-    if !ncch.is_decrypted().map_err(format_error)? {
+    let failure = |error| input.load_error(file_name, error);
+    let mut ncch = Ncch::open(source, identity.product_code, identity.title_id).map_err(failure)?;
+    if !ncch.is_decrypted().map_err(failure)? {
         return Err(RandomizationError::randomization(
-            "EncryptedROMException: the ROM is encrypted",
+            input.encrypted_message(file_name),
         ));
     }
     Ok(ncch)
@@ -84,7 +143,7 @@ pub struct CtrRom {
 impl CtrRom {
     pub fn open(source: BoxedSource, file_name: &str) -> Result<Self> {
         Ok(Self {
-            base: open_ncch(source)?,
+            base: open_ncch(source, RomInput::BaseRom, file_name)?,
             update: None,
             update_only_files: BTreeMap::new(),
             file_name: file_name.to_owned(),
@@ -92,7 +151,11 @@ impl CtrRom {
     }
 
     pub fn load_update(&mut self, source: BoxedSource) -> Result<i32> {
-        let update = open_ncch(source)?;
+        self.load_named_update(source, "")
+    }
+
+    pub fn load_named_update(&mut self, source: BoxedSource, file_name: &str) -> Result<i32> {
+        let update = open_ncch(source, RomInput::GameUpdate, file_name)?;
         let version = update.version();
         self.update = Some(update);
         self.update_only_files.clear();

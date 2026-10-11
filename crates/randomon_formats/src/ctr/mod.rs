@@ -1,6 +1,7 @@
 pub mod amx;
 pub mod bflim;
 pub mod container;
+pub mod crypto;
 pub mod garc;
 pub mod mini;
 pub mod ncch;
