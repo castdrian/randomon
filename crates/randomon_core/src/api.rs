@@ -1,9 +1,11 @@
+use std::path::{Path, PathBuf};
+
 use randomon_java::{RandomSource, SharedRandomSource};
 use randomon_log::LogWriter;
 use randomon_settings::{CustomNames, LineSeparator, Settings, default_custom_names_checksum};
 
 use crate::error::{RandomizationError, Result};
-use crate::handler::RomHandler;
+use crate::handler::{OutputFile, RomHandler};
 use crate::randomizer::{Randomizer, RomOutput};
 use crate::tweak::{TweakForRomFeedback, tweak_for_rom};
 
@@ -16,6 +18,32 @@ pub trait RomHandlerFactory: Send + Sync {
         file_name: &str,
         random_source: &SharedRandomSource,
     ) -> Result<Box<dyn RomHandler>>;
+    fn is_loadable_file(&self, _path: &Path) -> bool {
+        false
+    }
+    fn detect_file(&self, _path: &Path) -> Option<DetectedGame> {
+        None
+    }
+    fn create_from_file(
+        &self,
+        path: &Path,
+        file_name: &str,
+        random_source: &SharedRandomSource,
+    ) -> Result<Box<dyn RomHandler>> {
+        self.create(read_rom_file(path)?, file_name, random_source)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DetectedGame {
+    pub generation: i32,
+    pub rom_name: String,
+    pub rom_code: String,
+}
+
+fn read_rom_file(path: &Path) -> Result<Vec<u8>> {
+    std::fs::read(path)
+        .map_err(|error| RandomizationError::Io(format!("{}: {error}", path.display())))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,6 +63,8 @@ pub struct RandomizationOptions {
     pub handler_logging: bool,
     pub line_separator: LineSeparator,
     pub custom_names_checksum: Option<i32>,
+    pub output_path: Option<PathBuf>,
+    pub game_update: Option<PathBuf>,
 }
 
 impl Default for RandomizationOptions {
@@ -45,6 +75,8 @@ impl Default for RandomizationOptions {
             handler_logging: true,
             line_separator: LineSeparator::platform(),
             custom_names_checksum: None,
+            output_path: None,
+            game_update: None,
         }
     }
 }
@@ -62,7 +94,7 @@ impl RandomizationOutput {
     pub fn rom_bytes(&self) -> Option<&[u8]> {
         match &self.rom {
             RomOutput::File(bytes) => Some(bytes),
-            RomOutput::Directory(_) => None,
+            RomOutput::Directory(_) | RomOutput::Written(_) => None,
         }
     }
 }
@@ -119,14 +151,53 @@ impl HandlerRegistry {
     pub fn game_info(&self, rom: &[u8], file_name: &str) -> Result<GameInfo> {
         let source = RandomSource::with_seed(0).into_shared();
         let handler = self.load(rom.to_vec(), file_name, &source)?;
-        Ok(GameInfo {
-            generation: handler.generation_of_pokemon(),
-            rom_name: handler.rom_name(),
-            rom_code: handler.rom_code(),
-            support_level: handler.support_level(),
-            default_extension: handler.default_extension(),
-            is_rom_valid: handler.is_rom_valid(),
-        })
+        Ok(game_info_of(handler.as_ref()))
+    }
+
+    pub fn find_file(&self, path: &Path) -> Option<&dyn RomHandlerFactory> {
+        self.factories
+            .iter()
+            .find(|factory| factory.is_loadable_file(path))
+            .map(|factory| factory.as_ref())
+    }
+
+    pub fn detect_file(&self, path: &Path) -> Option<DetectedGame> {
+        self.factories
+            .iter()
+            .find_map(|factory| factory.detect_file(path))
+    }
+
+    pub fn load_file(
+        &self,
+        path: &Path,
+        file_name: &str,
+        random_source: &SharedRandomSource,
+    ) -> Result<Box<dyn RomHandler>> {
+        if let Some(factory) = self.find_file(path) {
+            return factory.create_from_file(path, file_name, random_source);
+        }
+        self.load(read_rom_file(path)?, file_name, random_source)
+    }
+
+    pub fn game_info_file(&self, path: &Path, file_name: &str) -> Result<GameInfo> {
+        let source = RandomSource::with_seed(0).into_shared();
+        let handler = self.load_file(path, file_name, &source)?;
+        Ok(game_info_of(handler.as_ref()))
+    }
+
+    pub fn randomize_file(
+        &self,
+        path: &Path,
+        settings: &Settings,
+        seed: i64,
+        options: &RandomizationOptions,
+    ) -> Result<RandomizationOutput> {
+        let random_source = RandomSource::with_seed(seed).into_shared();
+        let mut handler = self.load_file(path, &options.file_name, &random_source)?;
+        if let Some(update) = &options.game_update {
+            handler.load_game_update(update)?;
+        }
+        randomize_with_handler(handler.as_mut(), &random_source, settings, seed, options)
     }
 
     pub fn randomize(
@@ -139,6 +210,62 @@ impl HandlerRegistry {
         let random_source = RandomSource::with_seed(seed).into_shared();
         let mut handler = self.load(rom.to_vec(), &options.file_name, &random_source)?;
         randomize_with_handler(handler.as_mut(), &random_source, settings, seed, options)
+    }
+}
+
+fn top_level_directories(files: &[OutputFile]) -> Vec<String> {
+    let mut roots: Vec<String> = Vec::new();
+    for file in files {
+        if let Some((root, _)) = file.path.split_once('/')
+            && !roots.iter().any(|known| known == root)
+        {
+            roots.push(root.to_owned());
+        }
+    }
+    roots
+}
+
+fn purge_directory(directory: &Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(directory)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            std::fs::remove_dir_all(&path)?;
+        } else {
+            std::fs::remove_file(&path)?;
+        }
+    }
+    Ok(())
+}
+
+pub fn write_directory_output(root: &Path, files: &[OutputFile]) -> std::io::Result<()> {
+    for directory in top_level_directories(files) {
+        let path = root.join(directory);
+        if path.is_dir() {
+            purge_directory(&path)?;
+        }
+    }
+    for file in files {
+        let destination = root.join(&file.path);
+        if file.path.ends_with('/') {
+            std::fs::create_dir_all(&destination)?;
+            continue;
+        }
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&destination, &file.bytes)?;
+    }
+    Ok(())
+}
+
+fn game_info_of(handler: &dyn RomHandler) -> GameInfo {
+    GameInfo {
+        generation: handler.generation_of_pokemon(),
+        rom_name: handler.rom_name(),
+        rom_code: handler.rom_code(),
+        support_level: handler.support_level(),
+        default_extension: handler.default_extension(),
+        is_rom_valid: handler.is_rom_valid(),
     }
 }
 
@@ -173,6 +300,7 @@ pub fn randomize_with_handler(
         save_as_directory: options.save_as_directory,
         settings_string,
         is_gen1,
+        output_path: options.output_path.as_deref(),
     }
     .randomize(seed)?;
     let log = std::mem::take(&mut handler.core_mut().engine.log).into_string();
