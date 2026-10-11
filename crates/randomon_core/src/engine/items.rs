@@ -183,16 +183,25 @@ pub fn randomize_field_items<H: RomHandler + ?Sized>(
         }
     }
     for _ in required_tms.len()..current_tms.len() {
-        let unused: Vec<i32> = (1..=total_tm_count)
-            .filter(|tm| !new_tms.contains(tm))
-            .collect();
-        let every: Vec<i32> = (1..=total_tm_count.max(1)).collect();
-        new_tms.push(pick(&mut random, &first_non_empty(&[&unused, &every]))?);
+        let tm = pick_extra_field_tm(&mut random, &new_tms, total_tm_count)?;
+        new_tms.push(tm);
     }
     randomon_java::shuffle(&mut new_items, &mut random);
     randomon_java::shuffle(&mut new_tms, &mut random);
     handler.set_regular_field_items(&new_items)?;
     handler.set_field_tms(&new_tms)
+}
+
+fn pick_extra_field_tm(
+    random: &mut impl JavaRng,
+    placed: &[i32],
+    total_tm_count: i32,
+) -> Result<i32> {
+    let unused: Vec<i32> = (1..=total_tm_count)
+        .filter(|tm| !placed.contains(tm))
+        .collect();
+    let every: Vec<i32> = (1..=total_tm_count.max(1)).collect();
+    pick(random, &first_non_empty(&[&unused, &every]))
 }
 
 pub fn shuffle_shop_items<H: RomHandler + ?Sized>(handler: &mut H) -> Result<()> {
@@ -390,4 +399,28 @@ pub fn randomize_pickup_items<H: RomHandler + ?Sized>(
     }
     handler.set_pickup_items(&new_items);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use randomon_java::JavaRandom;
+
+    #[test]
+    fn extra_field_tms_repeat_once_every_tm_is_placed() {
+        let mut random = JavaRandom::new(7);
+        let placed: Vec<i32> = (1..=92).collect();
+        let tm = pick_extra_field_tm(&mut random, &placed, 92).expect("a tm");
+        assert!((1..=92).contains(&tm));
+    }
+
+    #[test]
+    fn extra_field_tms_prefer_unplaced_ones() {
+        let mut random = JavaRandom::new(7);
+        let placed: Vec<i32> = (1..=91).collect();
+        assert_eq!(
+            pick_extra_field_tm(&mut random, &placed, 92).expect("a tm"),
+            92
+        );
+    }
 }

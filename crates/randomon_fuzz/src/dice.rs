@@ -11,7 +11,7 @@ impl Dice {
         }
     }
 
-    pub fn next(&mut self) -> u64 {
+    pub fn roll(&mut self) -> u64 {
         self.state ^= self.state << 13;
         self.state ^= self.state >> 7;
         self.state ^= self.state << 17;
@@ -19,7 +19,7 @@ impl Dice {
     }
 
     pub fn below(&mut self, bound: u64) -> u64 {
-        if bound == 0 { 0 } else { self.next() % bound }
+        if bound == 0 { 0 } else { self.roll() % bound }
     }
 
     pub fn chance(&mut self, percent: u64) -> bool {
@@ -44,6 +44,6 @@ impl Dice {
     }
 
     pub fn seed(&mut self) -> i64 {
-        (self.next() >> 16) as i64
+        (self.roll() >> 16) as i64
     }
 }

@@ -75,7 +75,17 @@ fn random_ability_slot_excluding<H: RomHandler + ?Sized>(
     }
     let pk = handler.core().data.pk(pokemon);
     let abilities = [pk.ability1, pk.ability2, pk.ability3];
-    let filled: Vec<i32> = (1..=per_pokemon)
+    let mut random = handler.core().engine.random.clone();
+    choose_ability_slot(&mut random, per_pokemon, abilities, excluded)
+}
+
+fn choose_ability_slot(
+    random: &mut impl JavaRng,
+    per_pokemon: i32,
+    abilities: [i32; 3],
+    excluded: &[i32],
+) -> i32 {
+    let filled: Vec<i32> = (1..=per_pokemon.clamp(0, 3))
         .filter(|&slot| abilities[(slot - 1) as usize] != 0)
         .collect();
     let allowed: Vec<i32> = filled
@@ -83,8 +93,7 @@ fn random_ability_slot_excluding<H: RomHandler + ?Sized>(
         .copied()
         .filter(|slot| !excluded.contains(slot))
         .collect();
-    let mut random = handler.core().engine.random.clone();
-    pick(&mut random, &first_non_empty(&[&allowed, &filled, &[1]])).unwrap_or(1)
+    pick(random, &first_non_empty(&[&allowed, &filled, &[1]])).unwrap_or(1)
 }
 
 pub fn valid_ability_slot_from_original<H: RomHandler + ?Sized>(
@@ -1135,4 +1144,30 @@ pub fn double_battle_mode<H: RomHandler + ?Sized>(handler: &mut H) -> Result<()>
         trainer.pokemon.push(copy);
     }
     handler.set_trainers(&trainers, true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use randomon_java::JavaRandom;
+
+    #[test]
+    fn ability_slot_falls_back_when_every_ability_is_empty() {
+        let mut random = JavaRandom::new(3);
+        assert_eq!(choose_ability_slot(&mut random, 3, [0, 0, 0], &[]), 1);
+    }
+
+    #[test]
+    fn ability_slot_skips_empty_and_excluded_slots() {
+        let mut random = JavaRandom::new(3);
+        for _ in 0..20 {
+            assert_eq!(choose_ability_slot(&mut random, 3, [5, 0, 9], &[3]), 1);
+        }
+    }
+
+    #[test]
+    fn ability_slot_uses_an_excluded_slot_when_it_is_the_only_one() {
+        let mut random = JavaRandom::new(3);
+        assert_eq!(choose_ability_slot(&mut random, 3, [0, 0, 9], &[3]), 3);
+    }
 }

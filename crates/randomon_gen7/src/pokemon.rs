@@ -370,9 +370,7 @@ impl Gen7RomHandler {
                 .absolute_poke_num_by_base_forme
                 .get(&parsed.species)
                 .and_then(|formes| formes.get(&evolution.forme).copied())
-                .ok_or(RandomizationError::NullPointer(
-                    "absolutePokeNumByBaseForme.get",
-                ))?;
+                .unwrap_or_else(|| target.index() as i32);
             let id = self.core.data.new_evolution(evolution.clone());
             self.core.data.evolutions_from_mut(base).push(id);
             self.core

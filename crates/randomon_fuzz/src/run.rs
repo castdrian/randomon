@@ -218,7 +218,7 @@ fn full_image_path(target: &Target, case: u64, seed_index: u64) -> Option<PathBu
         .ok()
         .and_then(|text| text.parse().ok())
         .filter(|&every| every > 0)?;
-    (case % every == 0).then(|| {
+    case.is_multiple_of(every).then(|| {
         let directory = std::env::var_os("RANDOMON_FUZZ_SCRATCH")
             .map(PathBuf::from)
             .unwrap_or_else(std::env::temp_dir);
