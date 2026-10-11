@@ -129,17 +129,8 @@ impl Effectiveness {
         generation: i32,
         effectiveness_updated: bool,
     ) -> Option<Vec<(Type, Effectiveness)>> {
-        let (table, all_types) = if (2..=5).contains(&generation) {
-            if effectiveness_updated {
-                (Table::Gen6Plus, Type::all_types(2))
-            } else {
-                (Table::Gen2Through5, Type::all_types(2))
-            }
-        } else if generation >= 6 {
-            (Table::Gen6Plus, Type::all_types(6))
-        } else {
-            return None;
-        };
+        let table = Table::for_lists(generation, effectiveness_updated);
+        let all_types = Type::all_types(generation.max(1));
         Some(
             all_types
                 .iter()

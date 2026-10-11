@@ -21,6 +21,7 @@ members = [
     "crates/randomon_python_random",
     "crates/randomon_unity",
     "crates/randomon_bdsp",
+    "crates/randomon_fuzz",
 ]
 default-members = ["apps/randomon"]
 
@@ -69,4 +70,11 @@ codegen-units = 1
 lto = true
 opt-level = "s"
 strip = "symbols"
-panic = "abort"
+
+[profile.fuzz]
+inherits = "release"
+debug = "line-tables-only"
+strip = "none"
+lto = false
+codegen-units = 16
+opt-level = 3

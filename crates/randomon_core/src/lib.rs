@@ -13,5 +13,7 @@ pub use api::{
 pub use error::{RandomizationError, Result};
 pub use handler::{Compatibility, EggMoves, Movesets, OutputFile, RomHandler, TrainerNameMode};
 pub use randomizer::{Randomizer, RandomizerRun, RomOutput};
-pub use state::{EngineState, EvolutionUpdates, HandlerCore, PokemonPool, TrainerMovesetCaches};
+pub use state::{
+    DeferredError, EngineState, EvolutionUpdates, HandlerCore, PokemonPool, TrainerMovesetCaches,
+};
 pub use tweak::{TweakForRomFeedback, tweak_for_rom};

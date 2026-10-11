@@ -647,8 +647,9 @@ pub fn soft_move_synergy(
     effectiveness_updated: bool,
 ) -> Result<Vec<MoveId>, MissingEffectivenessTable> {
     let mut c = Collector::new(data, move_list);
-    if first.category != MoveCategory::Status {
-        let attacking = first.kind.ok_or(MissingEffectivenessTable)?;
+    if first.category != MoveCategory::Status
+        && let Some(attacking) = first.kind
+    {
         for resisting in
             Effectiveness::not_very_effective(attacking, generation, effectiveness_updated)
         {

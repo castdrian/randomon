@@ -23,8 +23,9 @@ fn evolution_type_indices_match_the_upstream_reverse_table() {
 }
 
 #[test]
-fn gen1_effectiveness_is_only_used_for_lists() {
-    assert!(Effectiveness::against(Type::Fire, None, 1, false).is_none());
+fn gen1_effectiveness_uses_the_gen1_table() {
+    let fire = Effectiveness::against(Type::Fire, None, 1, false).expect("gen 1 table");
+    assert_eq!(fire.len(), Type::all_types(1).len());
     assert_eq!(
         Effectiveness::not_very_effective(Type::Normal, 1, false),
         vec![Type::Rock, Type::Ghost]
@@ -115,4 +116,36 @@ fn shuffled_stats_copy_up_evolutions() {
     assert_eq!(evolved_stats.bst(), 155);
     assert_eq!(evolved_stats.hp - base_stats.hp, 1);
     assert_eq!(evolved_stats.speed - base_stats.speed, 1);
+}
+
+#[test]
+fn typeless_attacks_have_no_synergy_failure() {
+    let mut data = randomon_data::GameData::new();
+    let curse = data.create_move(randomon_data::Move {
+        number: 174,
+        power: 1,
+        kind: None,
+        category: randomon_data::MoveCategory::Physical,
+        ..randomon_data::Move::default()
+    });
+    let tackle = data.create_move(randomon_data::Move {
+        number: 33,
+        power: 40,
+        kind: Some(Type::Normal),
+        ..randomon_data::Move::default()
+    });
+    let first = data.mv(curse).clone();
+    let synergy =
+        randomon_data::move_synergy::soft_move_synergy(&data, &first, &[curse, tackle], 4, false);
+    assert!(synergy.is_ok());
+}
+
+#[test]
+fn item_lists_without_choices_do_not_loop() {
+    let mut items = randomon_data::ItemList::new(4);
+    items.ban_range(0, 5);
+    let mut random = randomon_java::JavaRandom::new(1);
+    assert_eq!(items.random_item(&mut random), 0);
+    assert_eq!(items.random_non_tm(&mut random), 0);
+    assert_eq!(items.random_tm(&mut random), 0);
 }

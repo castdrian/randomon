@@ -34,48 +34,63 @@ impl ItemList {
 
     pub fn ban_singles(&mut self, indexes: &[i32]) {
         for &index in indexes {
-            self.items[index as usize] = false;
+            if let Some(index) = self.in_range(index) {
+                self.items[index] = false;
+            }
         }
     }
 
     pub fn ban_range(&mut self, start: i32, length: i32) {
         for offset in 0..length {
-            self.items[(start + offset) as usize] = false;
+            if let Some(index) = self.in_range(start + offset) {
+                self.items[index] = false;
+            }
         }
     }
 
     pub fn tm_range(&mut self, start: i32, length: i32) {
         for offset in 0..length {
-            self.tms[(start + offset) as usize] = true;
+            if let Some(index) = self.in_range(start + offset) {
+                self.tms[index] = true;
+            }
         }
     }
 
-    fn bound(&self) -> i32 {
-        self.items.len() as i32
+    fn pick_where(&self, random: &mut impl JavaRng, accept: impl Fn(usize) -> bool) -> i32 {
+        let candidates: Vec<usize> = (0..self.items.len())
+            .filter(|&index| accept(index))
+            .collect();
+        if candidates.is_empty() {
+            return 0;
+        }
+        candidates[random.next_int_bounded(candidates.len() as i32) as usize] as i32
+    }
+
+    pub fn has_non_tm_items(&self) -> bool {
+        (0..self.items.len()).any(|index| self.items[index] && !self.tms[index])
+    }
+
+    pub fn random_non_tm_excluding(&self, random: &mut impl JavaRng, excluded: &[i32]) -> i32 {
+        let fresh = |index: usize| {
+            self.items[index] && !self.tms[index] && !excluded.contains(&(index as i32))
+        };
+        if (0..self.items.len()).any(fresh) {
+            self.pick_where(random, fresh)
+        } else {
+            self.random_non_tm(random)
+        }
     }
 
     pub fn random_item(&self, random: &mut impl JavaRng) -> i32 {
-        let mut chosen = 0usize;
-        while !self.items[chosen] {
-            chosen = random.next_int_bounded(self.bound()) as usize;
-        }
-        chosen as i32
+        self.pick_where(random, |index| self.items[index])
     }
 
     pub fn random_non_tm(&self, random: &mut impl JavaRng) -> i32 {
-        let mut chosen = 0usize;
-        while !self.items[chosen] || self.tms[chosen] {
-            chosen = random.next_int_bounded(self.bound()) as usize;
-        }
-        chosen as i32
+        self.pick_where(random, |index| self.items[index] && !self.tms[index])
     }
 
     pub fn random_tm(&self, random: &mut impl JavaRng) -> i32 {
-        let mut chosen = 0usize;
-        while !self.tms[chosen] {
-            chosen = random.next_int_bounded(self.bound()) as usize;
-        }
-        chosen as i32
+        self.pick_where(random, |index| self.tms[index])
     }
 
     pub fn copy_with_max(&self, new_max: usize) -> ItemList {

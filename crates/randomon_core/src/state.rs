@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 
 use randomon_data::{EvolutionUpdate, GameData, MegaEvolutionId, MoveLearnt, PokemonId, Type};
@@ -5,6 +6,8 @@ use randomon_java::{
     SharedCosmeticRandomSourceInstance, SharedRandomSource, SharedRandomSourceInstance,
 };
 use randomon_log::LogWriter;
+
+use crate::error::{RandomizationError, Result};
 
 pub type EvolutionUpdates = BTreeMap<(i32, i32), EvolutionUpdate>;
 
@@ -108,10 +111,39 @@ impl EngineState {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct DeferredError {
+    first: RefCell<Option<RandomizationError>>,
+}
+
+impl DeferredError {
+    pub fn settle<T: Default>(&self, result: Result<T>) -> T {
+        result.unwrap_or_else(|error| {
+            self.record(error);
+            T::default()
+        })
+    }
+
+    pub fn record(&self, error: RandomizationError) {
+        let mut first = self.first.borrow_mut();
+        if first.is_none() {
+            *first = Some(error);
+        }
+    }
+
+    pub fn check(&self) -> Result<()> {
+        match self.first.borrow_mut().take() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct HandlerCore {
     pub data: GameData,
     pub engine: EngineState,
+    pub deferred: DeferredError,
 }
 
 impl HandlerCore {
@@ -119,6 +151,7 @@ impl HandlerCore {
         Self {
             data: GameData::new(),
             engine: EngineState::new(random_source),
+            deferred: DeferredError::default(),
         }
     }
 }

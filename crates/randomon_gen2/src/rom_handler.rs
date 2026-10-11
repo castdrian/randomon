@@ -440,6 +440,23 @@ impl RomHandler for Gen2RomHandler {
         true
     }
 
+    fn get_sensible_held_items_for(
+        &self,
+        _pokemon: &randomon_data::TrainerPokemon,
+        consumable_only: bool,
+        moveset: &[i32; 4],
+    ) -> Vec<i32> {
+        crate::held_items::sensible_held_items(&self.core.data, consumable_only, moveset)
+    }
+
+    fn get_all_consumable_held_items(&self) -> Vec<i32> {
+        crate::held_items::CONSUMABLE_HELD_ITEMS.to_vec()
+    }
+
+    fn get_all_held_items(&self) -> Vec<i32> {
+        crate::held_items::all_held_items()
+    }
+
     fn remove_impossible_evolutions(&mut self, _settings: &Settings) -> Result<()> {
         self.remove_trade_evolutions();
         Ok(())

@@ -3,6 +3,7 @@ pub mod constants;
 mod encounters;
 mod field;
 mod handler;
+mod held_items;
 pub mod items;
 mod learnsets;
 mod maps;
@@ -10,6 +11,7 @@ mod moves;
 mod rom_entry;
 mod rom_handler;
 mod statics;
+mod trainer_space;
 mod trainers;
 mod tweaks;
 

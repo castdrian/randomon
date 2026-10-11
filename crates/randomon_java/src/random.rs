@@ -101,7 +101,9 @@ impl JavaRng for JavaRandom {
     }
 
     fn next_int_bounded(&mut self, bound: i32) -> i32 {
-        assert!(bound > 0, "bound must be positive");
+        if bound <= 0 {
+            return 0;
+        }
         let mut r = self.next(31);
         let m = bound - 1;
         if (bound & m) == 0 {

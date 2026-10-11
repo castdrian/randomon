@@ -541,7 +541,9 @@ impl Randomizer<'_> {
         }
         self.handler.randomize_intro_pokemon()?;
         self.handler.write_check_value_to_rom(check_value);
+        self.handler.core().deferred.check()?;
         let rom = self.save_output(seed)?;
+        self.handler.core().deferred.check()?;
         let mut game_name = self.handler.rom_name();
         if self.handler.has_game_update_loaded() {
             game_name = format!(

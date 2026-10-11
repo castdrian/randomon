@@ -2,7 +2,8 @@ use randomon_data::text::java_equals_ignore_case;
 use randomon_java::JavaRng;
 use randomon_settings::{CustomNames, InGameTradesMod, Settings};
 
-use crate::engine::pool::{check_pokemon_restrictions, random_pokemon};
+use crate::engine::choose::pick_unused as pick_unused_pokemon;
+use crate::engine::pool::check_pokemon_restrictions;
 use crate::engine::util::random_index;
 use crate::error::Result;
 use crate::handler::RomHandler;
@@ -22,11 +23,13 @@ fn filtered_names<H: RomHandler + ?Sized>(
 }
 
 fn pick_unused(names: &[String], used: &[String], random: &mut impl JavaRng) -> Result<String> {
-    let mut name = &names[random_index(random, names.len())?];
-    while used.contains(name) {
-        name = &names[random_index(random, names.len())?];
-    }
-    Ok(name.clone())
+    let unused: Vec<&String> = names.iter().filter(|name| !used.contains(name)).collect();
+    let choices: Vec<&String> = if unused.is_empty() {
+        names.iter().collect()
+    } else {
+        unused
+    };
+    Ok(choices[random_index(random, choices.len())?].clone())
 }
 
 pub fn randomize_ingame_trades<H: RomHandler + ?Sized>(
@@ -72,19 +75,16 @@ pub fn randomize_ingame_trades<H: RomHandler + ?Sized>(
     let mut random = handler.core().engine.random.clone();
     for trade in &mut trades {
         let old_given = trade.given_pokemon;
-        let mut given = random_pokemon(handler)?;
-        while used_givens.contains(&given) {
-            given = random_pokemon(handler)?;
-        }
+        let main_pool = handler.core().engine.pool.main.clone();
+        let given = pick_unused_pokemon(&mut random, &main_pool, &used_givens)?;
         used_givens.push(given);
         trade.given_pokemon = given;
         if Some(old_given) == trade.requested_pokemon {
             trade.requested_pokemon = Some(given);
         } else if randomize_request && trade.requested_pokemon.is_some() {
-            let mut request = random_pokemon(handler)?;
-            while used_requests.contains(&request) || request == given {
-                request = random_pokemon(handler)?;
-            }
+            let mut avoided = used_requests.clone();
+            avoided.push(given);
+            let request = pick_unused_pokemon(&mut random, &main_pool, &avoided)?;
             used_requests.push(request);
             trade.requested_pokemon = Some(request);
         }
