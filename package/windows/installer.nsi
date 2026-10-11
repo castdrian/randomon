@@ -1,5 +1,7 @@
 Unicode true
 !include "MUI2.nsh"
+!include "x64.nsh"
+!include "LogicLib.nsh"
 
 Name "randomon"
 OutFile "installer.exe"
@@ -24,8 +26,13 @@ VIAddVersionKey "FileDescription" "randomon installer"
 
 Section "Install"
   SetOutPath "$INSTDIR"
-  File "randomon.exe"
-  File "randomon-cli.exe"
+  ${If} ${IsNativeARM64}
+    File "arm64\randomon.exe"
+    File "arm64\randomon-cli.exe"
+  ${Else}
+    File "x86_64\randomon.exe"
+    File "x86_64\randomon-cli.exe"
+  ${EndIf}
   File "icon.ico"
   WriteUninstaller "$INSTDIR\uninstall.exe"
   CreateShortCut "$SMPROGRAMS\randomon.lnk" "$INSTDIR\randomon.exe" "" "$INSTDIR\icon.ico"

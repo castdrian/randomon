@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+here="$(dirname "$(readlink -f "$0")")"
+if [ "$#" -gt 0 ]; then
+    exec "${here}/usr/bin/randomon-cli" "$@"
+fi
+exec "${here}/usr/bin/randomon"

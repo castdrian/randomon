@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>dev.adrian.randomon</id>
+  <name>randomon</name>
+  <summary>A fast, native Pokémon randomizer</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <launchable type="desktop-id">randomon.desktop</launchable>
+  <url type="homepage">https://github.com/castdrian/randomon</url>
+  <description>
+    <p>Randomize Pokémon games from Generation 1 to Brilliant Diamond and Shining Pearl, compatible with Universal Pokemon Randomizer ZX settings.</p>
+  </description>
+  <content_rating type="oars-1.1"/>
+</component>

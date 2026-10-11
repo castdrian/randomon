@@ -13,13 +13,16 @@ concurrency:
 
 env:
     CARGO_TERM_COLOR: always
+    GIT_CONFIG_COUNT: 1
+    GIT_CONFIG_KEY_0: init.defaultBranch
+    GIT_CONFIG_VALUE_0: main
     SEMANTIC_RELEASE: >-
         npx --yes
-        -p semantic-release@24
-        -p @semantic-release/changelog@6
+        -p semantic-release@25
+        -p @semantic-release/changelog@7
         -p @semantic-release/exec@7
-        -p @semantic-release/git@10
-        -p conventional-changelog-conventionalcommits@8
+        -p @semantic-release/git@11
+        -p conventional-changelog-conventionalcommits@10
         semantic-release
 
 jobs:
@@ -70,20 +73,21 @@ jobs:
               run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libfontconfig1-dev pkg-config libfuse2 file
             - uses: Swatinem/rust-cache@v2
             - run: cargo build --release -p randomon -p randomon-cli
-            - name: Package tarball and AppImage
+            - name: Package AppImage
               env:
                   VERSION: ${{ needs.version.outputs.version }}
                   ARCH: ${{ matrix.arch }}
               run: |
                   mkdir -p dist
-                  tar -C target/release -czf "dist/randomon-$VERSION-linux-$ARCH.tar.gz" randomon randomon-cli
                   APPDIR=build/randomon.AppDir
-                  mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/icons/hicolor/512x512/apps"
+                  mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/icons/hicolor/512x512/apps" "$APPDIR/usr/share/metainfo" "$APPDIR/usr/share/applications"
                   cp target/release/randomon target/release/randomon-cli "$APPDIR/usr/bin/"
                   cp package/linux/randomon.desktop "$APPDIR/"
+                  cp package/linux/randomon.desktop "$APPDIR/usr/share/applications/"
+                  cp package/linux/dev.adrian.randomon.metainfo.xml "$APPDIR/usr/share/metainfo/"
                   cp assets/icon-512.png "$APPDIR/randomon.png"
                   cp assets/icon-512.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/randomon.png"
-                  ln -s usr/bin/randomon "$APPDIR/AppRun"
+                  cp package/linux/AppRun "$APPDIR/AppRun"
                   curl -fsSL -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$ARCH.AppImage"
                   chmod +x appimagetool
                   ./appimagetool --appimage-extract-and-run "$APPDIR" "dist/randomon-$VERSION-linux-$ARCH.AppImage"
@@ -115,23 +119,42 @@ jobs:
             - run: bash scripts/set-version.sh ${{ needs.version.outputs.version }}
             - uses: Swatinem/rust-cache@v2
             - run: cargo build --release -p randomon -p randomon-cli --target ${{ matrix.target }}
+            - name: Collect binaries
+              shell: bash
+              run: |
+                  mkdir -p "dist/${{ matrix.arch }}"
+                  cp "target/${{ matrix.target }}/release/randomon.exe" "target/${{ matrix.target }}/release/randomon-cli.exe" "dist/${{ matrix.arch }}/"
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: windows-binaries-${{ matrix.arch }}
+                  path: dist/
+
+    windows-installer:
+        needs: [version, windows]
+        runs-on: windows-latest
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  fetch-depth: 1
+            - uses: actions/download-artifact@v8
+              with:
+                  pattern: windows-binaries-*
+                  path: build/nsis
+                  merge-multiple: true
             - name: Install NSIS
               run: choco install nsis -y
-            - name: Package portable build and installer
+            - name: Build the installer
               shell: pwsh
               env:
                   VERSION: ${{ needs.version.outputs.version }}
               run: |
-                  $bin = "target/${{ matrix.target }}/release"
-                  New-Item -ItemType Directory -Force -Path dist, build/nsis | Out-Null
-                  Copy-Item "$bin/randomon.exe" "dist/randomon-$env:VERSION-windows-${{ matrix.arch }}-portable.exe"
-                  Copy-Item "$bin/randomon-cli.exe" "dist/randomon-cli-$env:VERSION-windows-${{ matrix.arch }}.exe"
-                  Copy-Item package/windows/installer.nsi, assets/icon.ico, "$bin/randomon.exe", "$bin/randomon-cli.exe" build/nsis/
+                  New-Item -ItemType Directory -Force -Path dist | Out-Null
+                  Copy-Item package/windows/installer.nsi, assets/icon.ico build/nsis/
                   & "C:\Program Files (x86)\NSIS\makensis.exe" "/DAPPVERSION=$env:VERSION" build/nsis/installer.nsi
-                  Move-Item build/nsis/installer.exe "dist/randomon-$env:VERSION-windows-${{ matrix.arch }}-setup.exe"
+                  Move-Item build/nsis/installer.exe "dist/randomon-$env:VERSION-windows-setup.exe"
             - uses: actions/upload-artifact@v7
               with:
-                  name: windows-${{ matrix.arch }}
+                  name: windows
                   path: dist/*
 
     macos:
@@ -218,7 +241,6 @@ jobs:
                   codesign --force --options runtime --timestamp --entitlements package/macos/entitlements.plist --sign "$IDENTITY" "$APP/Contents/MacOS/randomon-cli"
                   codesign --force --options runtime --timestamp --entitlements package/macos/entitlements.plist --sign "$IDENTITY" "$APP"
                   codesign --verify --deep --strict --verbose=2 "$APP"
-                  codesign --force --options runtime --timestamp --sign "$IDENTITY" build/universal/randomon-cli
 
             - name: Notarize and staple app
               run: |
@@ -240,10 +262,9 @@ jobs:
                   mkdir -p dist build/dmg
                   cp -R build/randomon.app build/dmg/
                   ln -s /Applications build/dmg/Applications
-                  DMG="dist/randomon-$VERSION-macos-universal.dmg"
+                  DMG="dist/randomon-$VERSION-macos.dmg"
                   hdiutil create -volname "randomon" -srcfolder build/dmg -ov -format UDZO "$DMG"
                   codesign --force --timestamp --sign "$IDENTITY" "$DMG"
-                  /usr/bin/ditto -c -k build/universal/randomon-cli "dist/randomon-cli-$VERSION-macos-universal.zip"
 
             - name: Notarize and staple DMG
               env:
@@ -251,7 +272,7 @@ jobs:
               run: |
                   trap 'rm -f /tmp/notary_key.p8' EXIT
                   echo "${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}" | base64 --decode > /tmp/notary_key.p8
-                  DMG="dist/randomon-$VERSION-macos-universal.dmg"
+                  DMG="dist/randomon-$VERSION-macos.dmg"
                   xcrun notarytool submit "$DMG" \
                     --key /tmp/notary_key.p8 \
                     --key-id "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
@@ -269,7 +290,7 @@ jobs:
               run: security delete-keychain "$RUNNER_TEMP/randomon-signing.keychain-db" || true
 
     publish:
-        needs: [version, linux, windows, macos]
+        needs: [version, linux, windows-installer, macos]
         runs-on: ubuntu-latest
         permissions:
             contents: write
@@ -286,9 +307,8 @@ jobs:
             - uses: actions/download-artifact@v8
               with:
                   path: dist
+                  pattern: "{linux-*,windows,macos-universal}"
                   merge-multiple: true
-            - name: Write checksums
-              run: cd dist && sha256sum -- * > SHA256SUMS.txt
             - name: Publish the release
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
