@@ -20,6 +20,8 @@ pub enum FormatError {
     },
     #[error("the ROM appears to be encrypted: {0}")]
     EncryptedRom(Box<FormatError>),
+    #[error("{0}")]
+    Crypto(#[from] crate::ctr::crypto::CryptoError),
 }
 
 impl FormatError {

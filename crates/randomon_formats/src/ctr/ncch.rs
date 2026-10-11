@@ -4,6 +4,7 @@ use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 
 use super::container::{align_long, cxi_offset, read_cia_version};
+use super::crypto::{self, CryptoSource, KeyLookup};
 use super::romfs::{DirectoryMetadata, FileMetadata, METADATA_UNUSED, RomfsFile, RomfsScratch};
 use super::smdh::Smdh;
 use crate::bytes::{read_long, read_long_be, write_full_long, write_long};
@@ -75,7 +76,7 @@ pub struct NcchDiagnostics {
 }
 
 pub struct Ncch<R> {
-    source: R,
+    source: CryptoSource<R>,
     ncch_offset: i64,
     product_code: Option<String>,
     title_id: Option<String>,
@@ -117,11 +118,18 @@ impl Level3Layout {
 }
 
 impl<R: Read + Seek> Ncch<R> {
-    pub fn open(
-        mut source: R,
+    pub fn open(source: R, product_code: Option<String>, title_id: Option<String>) -> Result<Self> {
+        Self::open_with_keys(source, product_code, title_id, KeyLookup::Discover)
+    }
+
+    pub fn open_with_keys(
+        source: R,
         product_code: Option<String>,
         title_id: Option<String>,
+        keys: KeyLookup<'_>,
     ) -> Result<Self> {
+        let mut source = CryptoSource::new(source);
+        crypto::prepare(&mut source, keys)?;
         let ncch_offset = cxi_offset(&mut source)?.map_or(-1, |offset| offset as i64);
         let version = if ncch_offset != -1 {
             read_cia_version(&mut source)?
@@ -308,6 +316,10 @@ impl<R: Read + Seek> Ncch<R> {
         Ok(self.romfs.as_ref().is_some_and(|romfs| {
             romfs.by_path.contains_key("DllBattle.cro") || romfs.by_path.contains_key("Battle.cro")
         }))
+    }
+
+    pub fn was_decrypted_on_load(&self) -> bool {
+        self.source.is_decrypting()
     }
 
     pub fn product_code(&self) -> Option<&str> {

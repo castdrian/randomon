@@ -61,17 +61,19 @@ fn path_name(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn inspect_from_file(path: &Path) -> Option<EngineGame> {
-    registry().detect_file(path)?;
+fn inspect_from_file(path: &Path) -> Result<Option<EngineGame>, String> {
+    if registry().detect_file(path).is_none() {
+        return Ok(None);
+    }
     let random_source = RandomSource::with_seed(0).into_shared();
     let handler = registry()
         .load_file(path, &path_name(path), &random_source)
-        .ok()?;
-    Some(engine_game(
+        .map_err(|error| error.to_string())?;
+    Ok(Some(engine_game(
         handler.as_ref(),
         RomSource::File(path.to_path_buf()),
         path,
-    ))
+    )))
 }
 
 fn inspect_in_memory(path: &Path, size_bytes: u64) -> Option<EngineGame> {
@@ -104,10 +106,12 @@ fn engine_game(handler: &dyn RomHandler, source: RomSource, path: &Path) -> Engi
     }
 }
 
-pub fn inspect(path: &Path, size_bytes: u64) -> Option<EngineGame> {
-    guarded(|| inspect_from_file(path).or_else(|| inspect_in_memory(path, size_bytes)))
-        .ok()
-        .flatten()
+pub fn inspect_checked(path: &Path, size_bytes: u64) -> Result<Option<EngineGame>, String> {
+    guarded(|| match inspect_from_file(path) {
+        Ok(Some(game)) => Ok(Some(game)),
+        Ok(None) => Ok(inspect_in_memory(path, size_bytes)),
+        Err(message) => inspect_in_memory(path, size_bytes).map(Some).ok_or(message),
+    })?
 }
 
 fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
@@ -298,7 +302,9 @@ mod tests {
             return;
         };
         let size = std::fs::metadata(&rom).expect("rom metadata").len();
-        let game = inspect(&rom, size).expect("engine recognises the rom");
+        let game = inspect_checked(&rom, size)
+            .expect("rom loads")
+            .expect("engine recognises the rom");
         let settings = Settings {
             rom_name: Some(game.rom_name.clone()),
             selected_exp_curve: Some(randomon_settings::ExpCurve::MediumFast),
@@ -355,7 +361,9 @@ mod tests {
             return;
         };
         let size = std::fs::metadata(&rom).expect("rom metadata").len();
-        let game = inspect(&rom, size).expect("engine recognises the 3DS rom");
+        let game = inspect_checked(&rom, size)
+            .expect("3DS rom loads")
+            .expect("engine recognises the 3DS rom");
         let settings = Settings {
             rom_name: Some(game.rom_name.clone()),
             selected_exp_curve: Some(randomon_settings::ExpCurve::MediumFast),
