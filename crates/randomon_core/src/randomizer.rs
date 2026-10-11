@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use randomon_data::{
@@ -24,6 +25,7 @@ const SEPARATOR_LINE: &str = "--------------------------------------------------
 pub enum RomOutput {
     File(Vec<u8>),
     Directory(Vec<OutputFile>),
+    Written(PathBuf),
 }
 
 #[derive(Clone, Debug)]
@@ -39,6 +41,7 @@ pub struct Randomizer<'a> {
     pub save_as_directory: bool,
     pub settings_string: String,
     pub is_gen1: bool,
+    pub output_path: Option<&'a Path>,
 }
 
 fn log(handler: &mut dyn RomHandler) -> &mut LogWriter {
@@ -538,11 +541,7 @@ impl Randomizer<'_> {
         }
         self.handler.randomize_intro_pokemon()?;
         self.handler.write_check_value_to_rom(check_value);
-        let rom = if self.save_as_directory {
-            RomOutput::Directory(self.handler.save_rom_directory()?)
-        } else {
-            RomOutput::File(self.handler.save_rom()?)
-        };
+        let rom = self.save_output(seed)?;
         let mut game_name = self.handler.rom_name();
         if self.handler.has_game_update_loaded() {
             game_name = format!(
@@ -567,6 +566,19 @@ impl Randomizer<'_> {
         self.print(&diagnostics);
         let _ = (totems_changed, shops_changed);
         Ok(RandomizerRun { check_value, rom })
+    }
+
+    fn save_output(&mut self, seed: i64) -> Result<RomOutput> {
+        if self.save_as_directory {
+            return Ok(RomOutput::Directory(self.handler.save_rom_directory()?));
+        }
+        match self.output_path {
+            Some(path) => {
+                self.handler.save_rom_to_path(path, seed)?;
+                Ok(RomOutput::Written(path.to_path_buf()))
+            }
+            None => Ok(RomOutput::File(self.handler.save_rom_with_seed(seed)?)),
+        }
     }
 
     fn move_name(&self, number: i32) -> String {

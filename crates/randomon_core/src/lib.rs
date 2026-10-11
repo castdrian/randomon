@@ -7,8 +7,8 @@ mod state;
 mod tweak;
 
 pub use api::{
-    GameInfo, HandlerRegistry, RandomizationOptions, RandomizationOutput, RomHandlerFactory,
-    randomize_with_handler,
+    DetectedGame, GameInfo, HandlerRegistry, RandomizationOptions, RandomizationOutput,
+    RomHandlerFactory, randomize_with_handler, write_directory_output,
 };
 pub use error::{RandomizationError, Result};
 pub use handler::{Compatibility, EggMoves, Movesets, OutputFile, RomHandler, TrainerNameMode};
