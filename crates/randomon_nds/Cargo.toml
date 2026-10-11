@@ -1,0 +1,16 @@
+[package]
+name = "randomon_nds"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+randomon_formats.workspace = true
+randomon_data.workspace = true
+randomon_core.workspace = true
+randomon_log.workspace = true
+
+[lints]
+workspace = true

@@ -14,6 +14,7 @@ import com.dabomstew.pkrandom.romhandlers.RomHandler;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.InputStream;
 import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -21,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
 import java.util.List;
 import java.util.ResourceBundle;
 
@@ -77,6 +79,25 @@ public class ParityRunner {
         throw new IllegalArgumentException("unsupported ROM " + romPath);
     }
 
+    private static void replaceRomWithDigest(Path romOutput, Path digestOutput) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        try (InputStream input = Files.newInputStream(romOutput)) {
+            byte[] buffer = new byte[1 << 20];
+            int read;
+            while ((read = input.read(buffer)) > 0) {
+                digest.update(buffer, 0, read);
+            }
+        }
+        StringBuilder hex = new StringBuilder();
+        for (byte value : digest.digest()) {
+            hex.append(String.format("%02x", value));
+        }
+        Files.write(digestOutput, hex.toString().getBytes(StandardCharsets.UTF_8));
+        if (!Boolean.getBoolean("parity.keepRom")) {
+            Files.delete(romOutput);
+        }
+    }
+
     private static void runJob(String romPath, String id, long seed, String mode, String settingsText,
                                Path outputDirectory, ResourceBundle bundle) throws Exception {
         Path romOutput = outputDirectory.resolve(id + ".rom");
@@ -96,6 +117,9 @@ public class ParityRunner {
             log.flush();
             Files.write(logOutput, buffer.toByteArray());
             Files.write(checkValueOutput, Integer.toString(checkValue).getBytes(StandardCharsets.UTF_8));
+            if (Boolean.getBoolean("parity.digest")) {
+                replaceRomWithDigest(romOutput, outputDirectory.resolve(id + ".sha256"));
+            }
         } catch (Throwable error) {
             StringWriter trace = new StringWriter();
             error.printStackTrace(new PrintWriter(trace));
