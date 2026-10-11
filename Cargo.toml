@@ -12,6 +12,7 @@ members = [
     "crates/randomon_gb",
     "crates/randomon_gen1",
     "crates/randomon_gen2",
+    "crates/randomon_gen3",
     "crates/randomon_nds",
     "crates/randomon_gen4",
     "crates/randomon_gen5",
@@ -43,6 +44,7 @@ randomon_log = { path = "crates/randomon_log" }
 randomon_gb = { path = "crates/randomon_gb" }
 randomon_gen1 = { path = "crates/randomon_gen1" }
 randomon_gen2 = { path = "crates/randomon_gen2" }
+randomon_gen3 = { path = "crates/randomon_gen3" }
 randomon_nds = { path = "crates/randomon_nds" }
 randomon_gen4 = { path = "crates/randomon_gen4" }
 randomon_gen5 = { path = "crates/randomon_gen5" }
@@ -77,4 +79,6 @@ debug = "line-tables-only"
 strip = "none"
 lto = false
 codegen-units = 16
+
+[profile.dev.package.randomon_formats]
 opt-level = 3

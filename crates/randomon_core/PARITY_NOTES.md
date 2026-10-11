@@ -30,6 +30,17 @@ Byte parity is no longer a goal. Where UPR crashes, hangs or runs out of memory,
 - Evolution walks (`final_evos`, relatives, pre-evolution chains, illegal chains, copy-up) are cycle-safe, so "random every level" works. Random evolutions relax force-change, the stage limit and then the growth curve before giving a Pokémon no evolution, and Pokémon outside the original pool no longer raise `originalEvos.get`.
 - Similar-strength searches widen in bounded steps until the whole pool is covered, then fall back. Every random retry loop is bounded, and empty pools fall back to the full pool or keep the original Pokémon.
 - Handler getters that fail record a deferred error that the randomizer reports before saving, instead of panicking.
+- `pickTrainerMovesets` on Gen 1: Gen 1 Pokémon have `spatk == 0`, so the attack ratio is infinite and Java runs out of memory adding moves. Randomon stops with an `OutOfMemoryError` message once the requested copies exceed 50 million. Past that point Java would also reach the `Effectiveness.against` null in `getSoftMoveSynergy`.
+- Gen 1 trainer edits that change the size of the trainer data: double battles, additional Pokémon, and held items (which switch a trainer to the special format). The data spills into the next trainer class, later reads find an unused species, and Java fails with a `NullPointerException`. Randomon's Gen 1 `get_trainers` reports the same null.
+- `randomizeEvolutions`/`randomizeEvolutionsEveryLevel` throw `Not able to randomize evolutions in a sane amount of retries.` when a growth curve has no candidate. That message is kept.
+- `getStarters().subList(0, 3)` on Yellow when "Elite Four unique Pokémon" and "rival carries starter" are both set.
+
+## Upstream failures that Randomon completes
+
+- `copyUpEvolutionsHelper` after "random every level" evolutions, when an evolution cycle has no base Pokémon: Java keeps pushing onto a stack until the heap runs out. Randomon treats the first Pokémon that repeats in the walk as a base Pokémon and carries on. Chains that do reach a base are copied exactly as before.
+- `setIllegalEvos`, `setIllegalPreEvos` and `traverseEvolutions` recurse along evolution cycles until Java throws `StackOverflowError` (for example "random every level" with "rival carries starter"). Randomon stops at Pokémon already on the current path, so acyclic chains give the same lists as Java.
+
+Some smaller cases are handled the same way as the reproduced failures above: empty choice lists (`Random.nextInt(0)`), out-of-range indexes and `null` dereferences on paths that real ROMs reach. Each returns a `RandomizationError` rather than panicking.
 
 ## What every generation handler implements
 
@@ -67,3 +78,13 @@ The Gen 4 handler (`randomon_gen4`) follows the product rule that the randomizer
 - Out-of-range ROM reads return errors instead of panicking. Trait getters that cannot return a `Result` log a warning and return an empty value, and setters tolerate short lists instead of crashing.
 - Validation without a Gen 4 ROM: `randomon_gen4/tests/support` builds synthetic NDS images for every offsets entry. `RANDOMON_GEN4_SYNTHETIC_PARITY=1` runs UPR ZX and Randomon on Diamond, Platinum and HeartGold images over the settings grid; every remaining difference is one of the fixes above or a shared-engine failure both sides hit. `RANDOMON_GEN4_ROM` runs the same grid on a real ROM.
 - Edits to RomFS files that exist only in a loaded game update are written to the LayeredFS output too.
+- Upstream failures reproduced as errors: `randomizeEvolutions` with alternate formes (`originalEvos.get` returns null) and empty trainer pools (`nextInt(0)`). `copyUpEvolutionsHelper` cycles now complete, as described above.
+
+## GBA (Gen 3)
+
+- The handler reads the ROM through bounds-checked accessors. Out-of-range reads return `0xFF`, writes outside the ROM are dropped, and every scan stops at the end of the ROM, so damaged or hacked ROMs cannot make it panic or loop.
+- `getStaticPokemon` applies the first-battle, Ghost Marowak and roamer IPS patches the first time it runs, and the map scan (field items, TM and tutor text locations) and the pickup table lookup run on first use. UPR always reaches all of these before writing anything they depend on, so Randomon runs them while loading: getters stay read-only and the output is the same.
+- When the free space search from `FreeSpace` finds nothing, UPR throws `ROM is full`. Randomon pads the ROM with `0xFF` up to 32 MiB and searches again. The same padding lets IPS patches that end past a short ROM apply.
+- Places where UPR would throw or corrupt data and Randomon does the safe thing instead: `RunWithoutRunningShoes` writes to offset `0x11` of the header when its prefix is missing (`offset != 0` accepts `-1`), and Randomon only patches a real match; `applyCorrectStaticMusic` walks past the music pool until an index error when a static is missing from it, and Randomon only searches the pool; the Ruby/Sapphire intro loop that never ends when every candidate is Bulbasaur or above index 510 is bounded; species and pointers outside the tables fall back to the first Pokémon instead of an index error; shop and egg move writes never run past the original table and end with a terminator when they shrink; trainer tags and multi-battle flags skip trainers that a short trainer table does not have; a broken move tutor text pointer is logged and skipped instead of throwing.
+- When "limit Pokémon" leaves an empty pool, Randomon falls back to the full Pokémon list instead of failing on `Random.nextInt(0)`.
+- FireRed 1.0 ROMs whose CRC32 differs from the retail one go through UPR's ROM hack detection, as in UPR. A randomized FireRed 1.0 ROM is therefore loaded as a hack when it is fed back in.
