@@ -169,6 +169,9 @@ impl Gen4RomHandler {
         use_time_of_day: bool,
         encounters: &[EncounterSet],
     ) -> Result<()> {
+        if encounters.is_empty() {
+            return Ok(());
+        }
         if self.entry.is_hgss() {
             self.set_encounters_hgss(use_time_of_day, encounters)?;
             self.update_pokedex_area_data_hgss(encounters)
@@ -815,10 +818,18 @@ impl Gen4RomHandler {
         data: &mut [u8],
         offset: i32,
         stride: i32,
+        slots: i32,
         encounters: &[Encounter],
     ) -> Result<()> {
-        for (slot, encounter) in encounters.iter().enumerate() {
-            let slot_offset = offset + slot as i32 * stride;
+        let mut replacements = encounters.iter();
+        for slot in 0..slots {
+            let slot_offset = offset + slot * stride;
+            if u16_at(data, slot_offset)? == 0 {
+                continue;
+            }
+            let Some(encounter) = replacements.next() else {
+                break;
+            };
             set_u16(data, slot_offset, self.number_of(encounter.pokemon))?;
             set_u8(data, slot_offset + 2, encounter.level)?;
             set_u8(data, slot_offset + 3, encounter.max_level)?;
@@ -843,7 +854,13 @@ impl Gen4RomHandler {
                 continue;
             }
             let set = cursor.next()?;
-            self.write_encounter_slots(&mut headbutt.files[index], 4, 4, &set.encounters)?;
+            self.write_encounter_slots(
+                &mut headbutt.files[index],
+                4,
+                4,
+                HEADBUTT_SLOTS,
+                &set.encounters,
+            )?;
         }
         self.write_narc("HeadbuttPokemon", &headbutt)?;
         let mut bcc = self.read_file("BCCWilds")?;
@@ -852,7 +869,7 @@ impl Gen4RomHandler {
                 continue;
             }
             let set = cursor.next()?;
-            self.write_encounter_slots(&mut bcc, *offset, 8, &set.encounters)?;
+            self.write_encounter_slots(&mut bcc, *offset, 8, BCC_SLOTS, &set.encounters)?;
         }
         self.write_file("BCCWilds", &bcc)
     }
