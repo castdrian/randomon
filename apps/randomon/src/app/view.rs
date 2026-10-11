@@ -192,7 +192,7 @@ impl Randomon {
             .into(),
             None => column![
                 text("No game loaded").size(18).font(SEMIBOLD),
-                text("Open a ROM or a Brilliant Diamond / Shining Pearl romfs folder, or drop either anywhere in the window. Until then, every option is shown so you can prepare settings.")
+                text("Open a game or romfs folder, or drop one into the window.")
                     .size(13)
                     .style(style::muted_text),
             ]
@@ -209,7 +209,7 @@ impl Randomon {
             actions = actions.push(self.game_update_control());
         }
         actions = actions.push(
-            button(text("Open game"))
+            button(text("Open game").wrapping(text::Wrapping::None))
                 .padding([8, 16])
                 .style(style::primary_button)
                 .on_press(Message::OpenGame),
@@ -217,7 +217,7 @@ impl Randomon {
 
         container(
             container(
-                row![details, space::horizontal(), actions]
+                row![container(details).width(Fill), actions]
                     .spacing(SPACE_2)
                     .align_y(Alignment::Center),
             )

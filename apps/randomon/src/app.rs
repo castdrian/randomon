@@ -489,7 +489,7 @@ impl Randomon {
         }
         if path.is_dir() {
             self.status = Some(Status::Error(
-                "That folder isn't a ROM or a Brilliant Diamond / Shining Pearl romfs.".to_owned(),
+                "That folder isn't a supported game or romfs folder.".to_owned(),
             ));
             return;
         }

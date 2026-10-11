@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crate::rom;
 
-const TITLE: &str = "Open a Pokémon ROM or a Brilliant Diamond / Shining Pearl romfs folder";
+const TITLE: &str = "Open game or romfs folder";
 
 #[cfg(target_os = "macos")]
 pub async fn pick_game() -> Option<PathBuf> {
@@ -20,7 +20,7 @@ pub async fn pick_game() -> Option<PathBuf> {
     rfd::AsyncFileDialog::new()
         .set_title(TITLE)
         .add_filter("Pokémon ROMs", rom::SUPPORTED_EXTENSIONS)
-        .add_filter("Any file inside a BDSP romfs", &["*"])
+        .add_filter("Any file inside a romfs folder", &["*"])
         .pick_file()
         .await
         .map(|handle| handle.path().to_path_buf())
