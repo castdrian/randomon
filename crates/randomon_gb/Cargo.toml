@@ -1,0 +1,15 @@
+[package]
+name = "randomon_gb"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+randomon_data.workspace = true
+randomon_settings.workspace = true
+crc32fast.workspace = true
+
+[lints]
+workspace = true

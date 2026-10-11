@@ -3,6 +3,7 @@ use std::sync::{Arc, OnceLock};
 
 use randomon_core::{HandlerRegistry, RandomizationOptions, RomHandler, RomOutput};
 use randomon_gen1::Gen1Factory;
+use randomon_gen2::Gen2Factory;
 use randomon_java::RandomSource;
 use randomon_settings::Settings;
 
@@ -30,7 +31,7 @@ pub struct RandomizedGame {
 
 pub fn registry() -> &'static HandlerRegistry {
     static REGISTRY: OnceLock<HandlerRegistry> = OnceLock::new();
-    REGISTRY.get_or_init(|| HandlerRegistry::new().with(Gen1Factory))
+    REGISTRY.get_or_init(|| HandlerRegistry::new().with(Gen1Factory).with(Gen2Factory))
 }
 
 pub fn inspect(path: &Path, size_bytes: u64) -> Option<EngineGame> {

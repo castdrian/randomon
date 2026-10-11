@@ -15,16 +15,19 @@ use randomon_java::SharedRandomSource;
 use randomon_log::LogWriter;
 use randomon_settings::MiscTweak;
 
-use crate::gb::{
-    TextTables, bank_of, calculate_offset, length_of_string_at, read_word, rom_signature_matches,
-    write_word,
+use randomon_gb::{
+    HeaderIds, TextTables, bank_of, calculate_offset, length_of_string_at, make_gb_pointer,
+    read_word, rom_signature_matches, write_word,
 };
+
+use crate::assets::{patch_bytes, table_text};
 use crate::maps::{MapData, load_maps};
 use crate::moves::{
     apply_misc_info_from_effect, apply_stat_changes_from_effect, apply_status_from_effect,
     hit_count_for_rom_id, initial_category,
 };
 use crate::rom_entry::{RomEntry, rom_entries};
+use randomon_gb::crc32;
 
 pub struct Gen1RomHandler {
     core: HandlerCore,
@@ -48,12 +51,11 @@ pub struct Gen1RomHandler {
 }
 
 pub fn check_rom_entry(rom: &[u8]) -> Option<&'static RomEntry> {
-    if rom.len() <= gb::CRC_OFFSET + 1 {
-        return None;
-    }
-    let version = i32::from(rom[gb::VERSION_OFFSET]);
-    let non_japanese = i32::from(rom[gb::JP_FLAG_OFFSET]);
-    let crc_in_header = (i32::from(rom[gb::CRC_OFFSET]) << 8) | i32::from(rom[gb::CRC_OFFSET + 1]);
+    let HeaderIds {
+        version,
+        non_japanese,
+        crc_in_header,
+    } = HeaderIds::read(rom)?;
     let matches = |entry: &RomEntry| {
         entry
             .rom_name
@@ -76,10 +78,6 @@ pub fn detect_rom(rom: &[u8]) -> bool {
     rom.len() >= gb::MIN_ROM_SIZE && rom.len() <= gb::MAX_ROM_SIZE && check_rom_entry(rom).is_some()
 }
 
-fn crc32(bytes: &[u8]) -> i64 {
-    i64::from(crc32fast::hash(bytes))
-}
-
 impl Gen1RomHandler {
     pub fn load(rom: Vec<u8>, file_name: &str, random_source: &SharedRandomSource) -> Result<Self> {
         if !detect_rom(&rom) {
@@ -88,11 +86,12 @@ impl Gen1RomHandler {
         let entry = check_rom_entry(&rom)
             .ok_or_else(|| RandomizationError::UnsupportedRom(file_name.to_owned()))?;
         let mut tables = TextTables::default();
-        tables.read_table("gameboy_jpn");
+        tables.read_table(randomon_gb::GAMEBOY_JPN_TABLE);
         if let Some(extra) = entry.extra_table_file.as_deref()
             && !extra.eq_ignore_ascii_case("none")
+            && let Some(text) = table_text(extra)
         {
-            tables.read_table(extra);
+            tables.read_table(text);
         }
         let maps = load_maps(&rom, entry, &tables);
         let mut handler = Self {
@@ -743,9 +742,9 @@ impl Gen1RomHandler {
         let Some(name) = self.entry.tweak_files.get(key) else {
             return Ok(false);
         };
-        let patch = crate::gb::patch_bytes(name)
+        let patch = patch_bytes(name)
             .ok_or_else(|| RandomizationError::Io(format!("missing patch {name}")))?;
-        crate::gb::apply_ips_patch(&mut self.rom, patch).map_err(RandomizationError::Io)?;
+        randomon_gb::apply_ips_patch(&mut self.rom, patch).map_err(RandomizationError::Io)?;
         Ok(true)
     }
 
@@ -795,18 +794,7 @@ impl Gen1RomHandler {
     }
 
     fn find_unique(&self, hex: &str) -> i32 {
-        if !hex.len().is_multiple_of(2) {
-            return -3;
-        }
-        let needle: Vec<u8> = (0..hex.len() / 2)
-            .map(|index| u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).unwrap_or(0))
-            .collect();
-        let found = crate::gb::search(&self.rom, &needle);
-        match found.len() {
-            0 => -1,
-            1 => found[0] as i32,
-            _ => -2,
-        }
+        randomon_gb::find_unique_hex(&self.rom, hex)
     }
 
     fn trade_layout(&self) -> (i32, i32, i32, Vec<i32>) {
@@ -834,10 +822,10 @@ impl Gen1RomHandler {
         let on_routine_size = 5 * on_values.len() as i32 + 3;
         let on_routine = self.value("StarterPokedexBranchOffset");
         let off_routine = on_routine + on_routine_size;
-        let on_pointer = crate::gb::make_gb_pointer(on_routine);
-        let off_pointer = crate::gb::make_gb_pointer(off_routine);
-        let return_on = crate::gb::make_gb_pointer(on_offset + 5);
-        let return_off = crate::gb::make_gb_pointer(off_offset + 4);
+        let on_pointer = make_gb_pointer(on_routine);
+        let off_pointer = make_gb_pointer(off_routine);
+        let return_on = make_gb_pointer(on_offset + 5);
+        let return_off = make_gb_pointer(off_offset + 4);
         self.set_byte(on_offset, gb::Z80_JUMP);
         write_word(&mut self.rom, on_offset + 1, on_pointer);
         self.set_byte(on_offset + 3, gb::Z80_NOP);
@@ -912,13 +900,13 @@ impl DataBlock {
             return None;
         }
         if merges_with_previous {
-            let pointer = crate::gb::make_gb_pointer(self.offset + self.used - 1);
+            let pointer = make_gb_pointer(self.offset + self.used - 1);
             let start = self.used as usize;
             self.bytes[start..start + data.len() - 1].copy_from_slice(&data[1..]);
             self.used += length - 1;
             Some(pointer)
         } else {
-            let pointer = crate::gb::make_gb_pointer(self.offset + self.used);
+            let pointer = make_gb_pointer(self.offset + self.used);
             let start = self.used as usize;
             self.bytes[start..start + data.len()].copy_from_slice(data);
             self.used += length;

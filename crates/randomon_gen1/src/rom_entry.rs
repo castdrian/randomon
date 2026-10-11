@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use randomon_data::Type;
-use randomon_settings::java_text::{java_trim, scanner_lines};
+use randomon_gb::{
+    IniLine, ini_lines, parse_int_array, parse_ri_int, parse_ri_long, parse_static_offsets,
+};
 
 const OFFSETS_INI: &str = include_str!("../assets/config/gen1_offsets.ini");
 
@@ -58,80 +60,12 @@ impl RomEntry {
     }
 }
 
-fn parse_with_radix(text: &str) -> (String, u32) {
-    let lowered = java_trim(text).to_lowercase();
-    if let Some(stripped) = lowered
-        .strip_prefix("0x")
-        .or_else(|| lowered.strip_prefix("&h"))
-    {
-        (stripped.to_owned(), 16)
-    } else {
-        (lowered, 10)
-    }
-}
-
-pub fn parse_ri_int(text: &str) -> i32 {
-    let (digits, radix) = parse_with_radix(text);
-    i32::from_str_radix(&digits, radix).unwrap_or(0)
-}
-
-pub fn parse_ri_long(text: &str) -> i64 {
-    let (digits, radix) = parse_with_radix(text);
-    i64::from_str_radix(&digits, radix).unwrap_or(0)
-}
-
-fn is_identifier_char(character: char) -> bool {
-    ('A'..='z').contains(&character)
-}
-
-fn parse_offset_group(inner: &str) -> Option<Vec<i32>> {
-    let parts: Vec<&str> = inner.split(',').collect();
-    let valid = parts.iter().all(|part| {
-        let trimmed = part.trim_start();
-        trimmed.strip_prefix("0x").is_some_and(|hex| {
-            !hex.trim_end().is_empty() && hex.trim_end().chars().all(|c| c.is_ascii_hexdigit())
-        })
-    });
-    valid.then(|| parts.iter().map(|part| parse_ri_int(part)).collect())
-}
-
 fn parse_static_pokemon(text: &str) -> StaticPokemonEntry {
-    let mut entry = StaticPokemonEntry::default();
-    let characters: Vec<char> = text.chars().collect();
-    let mut position = 0;
-    while position < characters.len() {
-        if !is_identifier_char(characters[position]) {
-            position += 1;
-            continue;
-        }
-        let name_start = position;
-        while position < characters.len() && is_identifier_char(characters[position]) {
-            position += 1;
-        }
-        let name: String = characters[name_start..position].iter().collect();
-        if characters.get(position) != Some(&'=') || characters.get(position + 1) != Some(&'[') {
-            continue;
-        }
-        let Some(close) = characters[position + 2..].iter().position(|&c| c == ']') else {
-            break;
-        };
-        let inner: String = characters[position + 2..position + 2 + close]
-            .iter()
-            .collect();
-        if let Some(offsets) = parse_offset_group(&inner) {
-            let segment_name = name
-                .rsplit(|c: char| !c.is_ascii_alphabetic())
-                .next()
-                .unwrap_or(&name);
-            match segment_name {
-                "Species" => entry.species_offsets = offsets,
-                "Level" => entry.level_offsets = offsets,
-                _ => {}
-            }
-        }
-        position += 2 + close + 1;
+    let offsets = parse_static_offsets(text);
+    StaticPokemonEntry {
+        species_offsets: offsets.species_offsets,
+        level_offsets: offsets.level_offsets,
     }
-    entry
 }
 
 fn apply_copy_from(current: &mut RomEntry, source: &RomEntry) {
@@ -233,14 +167,7 @@ fn apply_line(roms: &mut [RomEntry], key: &str, value: &str) {
                 .insert(key.to_owned(), value.to_owned());
         }
         _ => {
-            if value.starts_with('[') && value.ends_with(']') {
-                let inner = &value[1..value.len() - 1];
-                let offsets: Vec<&str> = inner.split(',').collect();
-                let parsed = if offsets.len() == 1 && java_trim(offsets[0]).is_empty() {
-                    Vec::new()
-                } else {
-                    offsets.iter().map(|offset| parse_ri_int(offset)).collect()
-                };
+            if let Some(parsed) = parse_int_array(value) {
                 roms[current_index]
                     .array_entries
                     .insert(key.to_owned(), parsed);
@@ -255,22 +182,11 @@ fn apply_line(roms: &mut [RomEntry], key: &str, value: &str) {
 
 fn load_rom_info() -> Vec<RomEntry> {
     let mut roms: Vec<RomEntry> = Vec::new();
-    for raw_line in scanner_lines(OFFSETS_INI) {
-        let mut line = java_trim(raw_line);
-        if let Some(comment) = line.find("//") {
-            line = java_trim(&line[..comment]);
+    for line in ini_lines(OFFSETS_INI) {
+        match line {
+            IniLine::Section(name) => roms.push(RomEntry::new(name.to_owned())),
+            IniLine::Entry(key, value) => apply_line(&mut roms, key, value),
         }
-        if line.is_empty() {
-            continue;
-        }
-        if line.starts_with('[') && line.ends_with(']') {
-            roms.push(RomEntry::new(line[1..line.len() - 1].to_owned()));
-            continue;
-        }
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-        apply_line(&mut roms, java_trim(key), java_trim(value));
     }
     roms
 }
@@ -330,13 +246,5 @@ mod tests {
         assert_eq!(first_text.number, 6);
         assert_eq!(first_text.offset, 0x0B0EE4);
         assert_eq!(first_text.template, "\\pTM06 contains\\n%m!\\e");
-    }
-
-    #[test]
-    fn radix_prefixes_follow_the_ini_rules() {
-        assert_eq!(parse_ri_int(" 0x1F "), 31);
-        assert_eq!(parse_ri_int("&h10"), 16);
-        assert_eq!(parse_ri_int("42"), 42);
-        assert_eq!(parse_ri_int("garbage"), 0);
     }
 }
