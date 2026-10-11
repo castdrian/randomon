@@ -79,6 +79,34 @@ fn first_evolution_to(data: &GameData, pokemon: PokemonId) -> Result<EvolutionId
         .ok_or(RandomizationError::IndexOutOfBounds("evolutionsTo.get(0)"))
 }
 
+enum ChainWalk {
+    Reached(Vec<EvolutionId>, EvolutionId),
+    Cycle(PokemonId),
+}
+
+fn walk_to_flagged_ancestor(data: &GameData, pokemon: PokemonId) -> Result<ChainWalk> {
+    let mut stack: Vec<EvolutionId> = Vec::new();
+    let mut visited = vec![pokemon];
+    let mut evo = first_evolution_to(data, pokemon)?;
+    loop {
+        let from = data.evo(evo).from;
+        if data.pk(from).temporary_flag {
+            return Ok(ChainWalk::Reached(stack, evo));
+        }
+        if visited.contains(&from) {
+            return Ok(ChainWalk::Cycle(from));
+        }
+        visited.push(from);
+        stack.push(evo);
+        if stack.len() > CHAIN_LIMIT {
+            return Err(RandomizationError::randomization(
+                "evolution chain does not reach a base Pokemon",
+            ));
+        }
+        evo = first_evolution_to(data, from)?;
+    }
+}
+
 pub fn copy_up_evolutions_helper<H: RomHandler + ?Sized, C>(
     handler: &mut H,
     context: &mut C,
@@ -113,22 +141,15 @@ pub fn copy_up_evolutions_helper<H: RomHandler + ?Sized, C>(
         if handler.core().data.pk(pokemon).temporary_flag {
             continue;
         }
-        let mut stack: Vec<EvolutionId> = Vec::new();
-        let mut evo = first_evolution_to(&handler.core().data, pokemon)?;
-        loop {
-            let data = &handler.core().data;
-            let from = data.evo(evo).from;
-            if data.pk(from).temporary_flag {
-                break;
+        let (mut stack, evo) = loop {
+            match walk_to_flagged_ancestor(&handler.core().data, pokemon)? {
+                ChainWalk::Reached(stack, evo) => break (stack, evo),
+                ChainWalk::Cycle(cycle_start) => {
+                    base(handler, context, cycle_start)?;
+                    handler.core_mut().data.pk_mut(cycle_start).temporary_flag = true;
+                }
             }
-            stack.push(evo);
-            if stack.len() > CHAIN_LIMIT {
-                return Err(RandomizationError::randomization(
-                    "evolution chain does not reach a base Pokemon",
-                ));
-            }
-            evo = first_evolution_to(data, from)?;
-        }
+        };
         let (from, to) = {
             let evolution = handler.core().data.evo(evo);
             (evolution.from, evolution.to)

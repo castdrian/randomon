@@ -173,19 +173,28 @@ pub fn fully_evolve<H: RomHandler + ?Sized>(
 
 pub fn final_evos(data: &GameData, pokemon: PokemonId) -> Vec<PokemonId> {
     let mut finals = Vec::new();
-    traverse_evolutions(data, pokemon, &mut finals);
+    traverse_evolutions(data, pokemon, &mut finals, &mut Vec::new());
     finals
 }
 
-fn traverse_evolutions(data: &GameData, pokemon: PokemonId, finals: &mut Vec<PokemonId>) {
+fn traverse_evolutions(
+    data: &GameData,
+    pokemon: PokemonId,
+    finals: &mut Vec<PokemonId>,
+    path: &mut Vec<PokemonId>,
+) {
     let targets = data.evolution_targets(pokemon);
     if targets.is_empty() {
         finals.push(pokemon);
-    } else {
-        for target in targets {
-            traverse_evolutions(data, target, finals);
+        return;
+    }
+    path.push(pokemon);
+    for target in targets {
+        if !path.contains(&target) {
+            traverse_evolutions(data, target, finals, path);
         }
     }
+    path.pop();
 }
 
 pub fn set_evo_chain_as_illegal(
@@ -194,24 +203,39 @@ pub fn set_evo_chain_as_illegal(
     illegal: &mut Vec<PokemonId>,
     will_force_evolve: bool,
 ) {
-    set_illegal_pre_evos(data, pokemon, illegal);
+    set_illegal_relatives(
+        data,
+        pokemon,
+        illegal,
+        &mut Vec::new(),
+        GameData::evolution_sources,
+    );
     if will_force_evolve {
-        set_illegal_evos(data, pokemon, illegal);
+        set_illegal_relatives(
+            data,
+            pokemon,
+            illegal,
+            &mut Vec::new(),
+            GameData::evolution_targets,
+        );
     }
 }
 
-fn set_illegal_pre_evos(data: &GameData, pokemon: PokemonId, illegal: &mut Vec<PokemonId>) {
-    for source in data.evolution_sources(pokemon) {
-        illegal.push(source);
-        set_illegal_pre_evos(data, source, illegal);
+fn set_illegal_relatives(
+    data: &GameData,
+    pokemon: PokemonId,
+    illegal: &mut Vec<PokemonId>,
+    path: &mut Vec<PokemonId>,
+    relatives: fn(&GameData, PokemonId) -> Vec<PokemonId>,
+) {
+    path.push(pokemon);
+    for relative in relatives(data, pokemon) {
+        illegal.push(relative);
+        if !path.contains(&relative) {
+            set_illegal_relatives(data, relative, illegal, path, relatives);
+        }
     }
-}
-
-fn set_illegal_evos(data: &GameData, pokemon: PokemonId, illegal: &mut Vec<PokemonId>) {
-    for target in data.evolution_targets(pokemon) {
-        illegal.push(target);
-        set_illegal_evos(data, target, illegal);
-    }
+    path.pop();
 }
 
 fn evolution_update(
