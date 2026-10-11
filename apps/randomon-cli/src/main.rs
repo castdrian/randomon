@@ -1,3 +1,5 @@
+mod bdsp;
+
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -65,6 +67,20 @@ struct Arguments {
 
     #[arg(short = 'l', help = "Also write the randomization log")]
     save_log: bool,
+
+    #[arg(
+        long,
+        value_name = "BDSP_SETTINGS_STRING",
+        help = "Brilliant Diamond/Shining Pearl settings string (input is a romfs folder)"
+    )]
+    bdsp_settings_string: Option<String>,
+
+    #[arg(
+        long,
+        value_name = "LAYOUT",
+        help = "BDSP output layout: atmosphere, yuzu, ryujinx or emulator"
+    )]
+    layout: Option<String>,
 }
 
 fn main() -> ExitCode {
@@ -115,6 +131,15 @@ fn absolute(path: &Path) -> PathBuf {
 }
 
 fn run(arguments: Arguments) -> Result<(), String> {
+    if bdsp::is_bdsp_input(&arguments.input) {
+        return bdsp::run(&bdsp::BdspArguments {
+            romfs: &arguments.input,
+            output: &arguments.output,
+            settings_string: arguments.bdsp_settings_string.as_deref(),
+            seed: arguments.seed,
+            layout: arguments.layout.as_deref(),
+        });
+    }
     let settings = load_settings(&arguments)?;
     let registry = registry();
     let input = absolute(&arguments.input);

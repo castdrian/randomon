@@ -17,6 +17,9 @@ members = [
     "crates/randomon_ctr",
     "crates/randomon_gen6",
     "crates/randomon_gen7",
+    "crates/randomon_python_random",
+    "crates/randomon_unity",
+    "crates/randomon_bdsp",
 ]
 default-members = ["apps/randomon"]
 
@@ -43,6 +46,9 @@ randomon_gen5 = { path = "crates/randomon_gen5" }
 randomon_ctr = { path = "crates/randomon_ctr" }
 randomon_gen6 = { path = "crates/randomon_gen6" }
 randomon_gen7 = { path = "crates/randomon_gen7" }
+randomon_python_random = { path = "crates/randomon_python_random" }
+randomon_unity = { path = "crates/randomon_unity" }
+randomon_bdsp = { path = "crates/randomon_bdsp" }
 thiserror = "2.0"
 base64 = "0.22"
 crc32fast = "1.5"
