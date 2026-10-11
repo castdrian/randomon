@@ -6,6 +6,7 @@ mod bundle;
 mod capabilities;
 mod debug;
 mod engine;
+mod game_picker;
 mod options;
 mod rom;
 mod section;

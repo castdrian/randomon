@@ -200,6 +200,32 @@ pub async fn randomize(
     .map_err(|error| error.to_string())?
 }
 
+pub async fn game_update_version(
+    game: EngineGame,
+    update: PathBuf,
+) -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(move || guarded(|| game_update_version_blocking(&game, &update))?)
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn game_update_version_blocking(
+    game: &EngineGame,
+    update: &Path,
+) -> Result<Option<String>, String> {
+    let random_source = RandomSource::with_seed(0).into_shared();
+    let file_name = path_name(&game.path);
+    let mut handler = match &game.source {
+        RomSource::Bytes(bytes) => registry().load(bytes.to_vec(), &file_name, &random_source),
+        RomSource::File(path) => registry().load_file(path, &file_name, &random_source),
+    }
+    .map_err(|error| error.to_string())?;
+    handler
+        .load_game_update(update)
+        .map_err(|error| format!("That update couldn't be loaded: {error}"))?;
+    Ok(handler.game_update_version())
+}
+
 fn randomize_blocking(
     game: &EngineGame,
     settings: &Settings,

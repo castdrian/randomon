@@ -482,3 +482,80 @@ pub fn warning_note(theme: &Theme) -> container::Style {
         ..container::Style::default()
     }
 }
+
+pub fn danger_button(theme: &Theme, status: button::Status) -> button::Style {
+    rounded(button::Style {
+        text_color: Color::WHITE,
+        ..button::danger(theme, status)
+    })
+}
+
+pub fn read_only_field(theme: &Theme) -> container::Style {
+    let palette = theme.extended_palette();
+    container::Style {
+        background: Some(Background::Color(palette.background.base.color)),
+        border: Border {
+            color: palette.background.strong.color,
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+pub fn success_note(theme: &Theme) -> container::Style {
+    tinted_note(theme.extended_palette().success.base.color)
+}
+
+pub fn danger_note(theme: &Theme) -> container::Style {
+    tinted_note(theme.extended_palette().danger.base.color)
+}
+
+fn tinted_note(color: Color) -> container::Style {
+    container::Style {
+        text_color: Some(color),
+        background: Some(Background::Color(Color { a: 0.12, ..color })),
+        border: Border {
+            radius: 8.0.into(),
+            ..Border::default()
+        },
+        ..container::Style::default()
+    }
+}
+
+pub fn update_chip(theme: &Theme) -> container::Style {
+    let palette = theme.extended_palette();
+    container::Style {
+        text_color: Some(palette.primary.base.color),
+        background: Some(Background::Color(Color {
+            a: 0.12,
+            ..palette.primary.base.color
+        })),
+        border: Border {
+            color: Color {
+                a: 0.35,
+                ..palette.primary.base.color
+            },
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+pub fn chip_remove_button(theme: &Theme, status: button::Status) -> button::Style {
+    let palette = theme.extended_palette();
+    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    button::Style {
+        background: hovered.then_some(Background::Color(Color {
+            a: 0.2,
+            ..palette.primary.base.color
+        })),
+        text_color: palette.primary.base.color,
+        border: Border {
+            radius: 6.0.into(),
+            ..Border::default()
+        },
+        ..button::Style::default()
+    }
+}
