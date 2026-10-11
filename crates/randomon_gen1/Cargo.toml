@@ -12,7 +12,7 @@ randomon_data.workspace = true
 randomon_settings.workspace = true
 randomon_log.workspace = true
 randomon_core.workspace = true
-crc32fast.workspace = true
+randomon_gb.workspace = true
 
 [lints]
 workspace = true
