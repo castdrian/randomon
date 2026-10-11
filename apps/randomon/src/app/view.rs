@@ -127,7 +127,6 @@ impl Randomon {
             row![
                 link_button("Discord", support::DISCORD_URL),
                 link_button("GitHub", support::REPOSITORY_URL),
-                link_button("UPR ZX", support::UPSTREAM_URL),
             ]
             .spacing(4),
         ]
