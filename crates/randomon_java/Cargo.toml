@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-getrandom = "0.3"
+getrandom = "0.4"
 
 [dev-dependencies]
 serde_json = "1"

@@ -55,7 +55,7 @@ randomon_python_random = { path = "crates/randomon_python_random" }
 randomon_unity = { path = "crates/randomon_unity" }
 randomon_bdsp = { path = "crates/randomon_bdsp" }
 thiserror = "2.0"
-base64 = "0.22"
+base64 = "0.23"
 crc32fast = "1.5"
 indexmap = "2.14"
 log = "0.4"
