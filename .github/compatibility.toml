@@ -26,12 +26,12 @@ status = "verified"
 [[rows]]
 label = "Generation 6 · Nintendo 3DS"
 value = "X, Y, Omega Ruby, Alpha Sapphire"
-status = "partial"
+status = "verified"
 
 [[rows]]
 label = "Generation 7 · Nintendo 3DS"
 value = "Sun, Moon, Ultra Sun, Ultra Moon"
-status = "partial"
+status = "verified"
 
 [[rows]]
 label = "Generation 8 · Nintendo Switch"
