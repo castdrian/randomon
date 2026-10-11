@@ -14,6 +14,7 @@ use crate::capabilities::Capabilities;
 use crate::debug::DebugBoot;
 use crate::engine;
 use crate::game_picker;
+use crate::keys::{self, KeysRetry};
 use crate::options::spec::Action;
 use crate::options::{self, effective, rules};
 use crate::rom::{self, LoadedRom};
@@ -65,6 +66,15 @@ struct Randomon {
 enum Status {
     Info(String),
     Error(String),
+    KeysNeeded(String, KeysRetry),
+}
+
+fn error_status(message: String, retry: KeysRetry) -> Status {
+    if keys::needs_keys(&message) {
+        Status::KeysNeeded(message, retry)
+    } else {
+        Status::Error(message)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +105,8 @@ enum Message {
     OutputChosen(Option<PathBuf>),
     Randomized(Result<engine::RandomizedGame, String>),
     OpenLink(&'static str),
+    ChooseKeysFile,
+    KeysFilePicked(Option<PathBuf>),
     Bdsp(BdspMessage),
 }
 
@@ -126,6 +138,7 @@ impl Randomon {
     }
 
     fn boot() -> (Self, Task<Message>) {
+        keys::apply_remembered();
         let mut state = Self::new();
         let boot = DebugBoot::from_env();
         let opens_picker = boot.dialog.as_deref() == Some("open-game");
@@ -269,6 +282,11 @@ impl Randomon {
                 });
             }
             Message::OpenLink(url) => support::open_link(url),
+            Message::ChooseKeysFile => {
+                return Task::perform(keys::pick_keys_file(), Message::KeysFilePicked);
+            }
+            Message::KeysFilePicked(None) => {}
+            Message::KeysFilePicked(Some(path)) => return self.use_keys_file(path),
             Message::Bdsp(BdspMessage::Close) => self.bdsp = None,
             Message::Bdsp(BdspMessage::OpenGame) => {
                 return Task::perform(game_picker::pick_game(), Message::GamePicked);
@@ -399,7 +417,7 @@ impl Randomon {
             }
             Err(error) => {
                 self.game_update = None;
-                self.status = Some(Status::Error(error));
+                self.status = Some(error_status(error, KeysRetry::Update(path)));
             }
         }
     }
@@ -475,10 +493,30 @@ impl Randomon {
             ));
             return;
         }
-        match rom::inspect(path) {
+        match rom::inspect(path.clone()) {
             Ok(loaded) => self.loaded_rom(loaded),
-            Err(message) => self.status = Some(Status::Error(message)),
+            Err(message) => self.status = Some(error_status(message, KeysRetry::Game(path))),
         }
+    }
+
+    fn use_keys_file(&mut self, path: PathBuf) -> Task<Message> {
+        let retry = match &self.status {
+            Some(Status::KeysNeeded(_, retry)) => Some(retry.clone()),
+            _ => None,
+        };
+        if let Err(error) = keys::use_keys_file(path) {
+            self.status = Some(match retry {
+                Some(retry) => Status::KeysNeeded(error, retry),
+                None => Status::Error(error),
+            });
+            return Task::none();
+        }
+        match retry {
+            Some(KeysRetry::Game(game)) => self.load_game(game),
+            Some(KeysRetry::Update(update)) => return self.check_game_update(update),
+            None => self.status = Some(Status::Info("3DS keys file saved.".to_owned())),
+        }
+        Task::none()
     }
 
     fn loaded_rom(&mut self, loaded: LoadedRom) {

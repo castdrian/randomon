@@ -7,7 +7,8 @@ use std::path::PathBuf;
 use common::vector;
 use randomon_formats::FormatError;
 use randomon_formats::ctr::crypto::{
-    Aes128, CryptoError, KeyLookup, KeyStore, discover_keys, scramble_normal_key, set_aes_keys_path,
+    Aes128, CryptoError, KeyLookup, KeyStore, discover_keys, is_key_problem_message,
+    scramble_normal_key, set_aes_keys_path,
 };
 use randomon_formats::ctr::{Ncch, container};
 
@@ -314,6 +315,26 @@ fn reports_missing_wrong_and_partial_keys() {
         crypto_error(open(&seeded, &keys.store())),
         CryptoError::SeedCrypto
     );
+    let mut evicted_only = KeyStore::default();
+    let evicted = PathBuf::from("/iCloud/sysdata/aes_keys.txt");
+    evicted_only.add_pending_download(evicted.clone());
+    assert_eq!(
+        crypto_error(open(&encrypted, &evicted_only)),
+        CryptoError::KeysNotDownloaded(evicted.clone())
+    );
+    for fixable in [
+        CryptoError::MissingKeys,
+        CryptoError::MissingKeySlot(SEVEN_X_SLOT),
+        CryptoError::WrongKeys,
+        CryptoError::MissingCommonKeys,
+        CryptoError::WrongCommonKeys,
+        CryptoError::KeysNotDownloaded(evicted),
+    ] {
+        assert!(is_key_problem_message(&fixable.to_string()), "{fixable:?}");
+    }
+    assert!(!is_key_problem_message(
+        &CryptoError::SeedCrypto.to_string()
+    ));
     let message = CryptoError::MissingKeys.message_for("The game update “X.cia”", "update");
     assert!(message.starts_with("The game update “X.cia” is encrypted"));
     assert!(message.contains("aes_keys.txt"));

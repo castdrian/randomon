@@ -9,7 +9,7 @@ use std::borrow::Cow;
 use std::io::{Read, Seek};
 
 pub use aes::Aes128;
-pub use discovery::{AES_KEYS_ENV, discover_keys, set_aes_keys_path};
+pub use discovery::{AES_KEYS_ENV, discover_keys, explicit_key_path, set_aes_keys_path};
 pub use keys::{KeyStore, scramble_normal_key};
 pub use ncch::{FIXED_KEY, NO_CRYPTO, SEED_CRYPTO, secondary_slot};
 pub use source::CryptoSource;
@@ -30,6 +30,7 @@ pub enum CryptoError {
     UnsupportedNcchVersion(u16),
     MissingCommonKeys,
     WrongCommonKeys,
+    KeysNotDownloaded(std::path::PathBuf),
 }
 
 impl CryptoError {
@@ -56,11 +57,19 @@ impl CryptoError {
             CryptoError::MissingCommonKeys => format!(
                 "{subject} is encrypted with a title key and no 3DS common keys were found. {KEYS_REMEDY} (with slot0x3DKeyX and common0-5) or use a decrypted {noun}."
             ),
+            CryptoError::KeysNotDownloaded(path) => format!(
+                "{subject} is encrypted and the 3DS keys at \u{201C}{}\u{201D} are still in iCloud Drive and not downloaded yet. Download that file in Finder, point randomon to another aes_keys.txt, or use a decrypted {noun}.",
+                path.display()
+            ),
             CryptoError::WrongCommonKeys => format!(
                 "{subject} is encrypted with a title key and the 3DS common keys found did not decrypt it. Check your aes_keys.txt or use a decrypted {noun}."
             ),
         }
     }
+}
+
+pub fn is_key_problem_message(message: &str) -> bool {
+    message.contains("aes_keys.txt")
 }
 
 impl std::fmt::Display for CryptoError {

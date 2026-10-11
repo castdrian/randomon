@@ -36,6 +36,7 @@ pub struct KeyStore {
     common_key_y: [Option<Block>; COMMON_KEY_COUNT],
     common_normal: [Option<Block>; COMMON_KEY_COUNT],
     sources: Vec<PathBuf>,
+    pending_downloads: Vec<PathBuf>,
 }
 
 impl std::fmt::Debug for KeyStore {
@@ -91,6 +92,23 @@ impl KeyStore {
 
     pub fn sources(&self) -> &[PathBuf] {
         &self.sources
+    }
+
+    pub fn pending_downloads(&self) -> &[PathBuf] {
+        &self.pending_downloads
+    }
+
+    pub fn add_pending_download(&mut self, path: PathBuf) {
+        if !self.pending_downloads.contains(&path) {
+            self.pending_downloads.push(path);
+        }
+    }
+
+    pub fn missing_keys_error(&self) -> super::CryptoError {
+        match self.pending_downloads.first() {
+            Some(path) => super::CryptoError::KeysNotDownloaded(path.clone()),
+            None => super::CryptoError::MissingKeys,
+        }
     }
 
     pub fn from_aes_keys_text(text: &str) -> Self {

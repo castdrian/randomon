@@ -226,7 +226,7 @@ fn game_update_version_blocking(
     .map_err(|error| error.to_string())?;
     handler
         .load_game_update(update)
-        .map_err(|error| format!("That update couldn't be loaded: {error}"))?;
+        .map_err(|error| error.to_string())?;
     Ok(handler.game_update_version())
 }
 

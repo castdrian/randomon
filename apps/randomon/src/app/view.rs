@@ -404,6 +404,16 @@ impl Randomon {
             self.status.as_ref().map(|status| match status {
                 Status::Info(message) => text(message).size(12).style(style::muted_text).into(),
                 Status::Error(message) => text(message).size(12).style(text::danger).into(),
+                Status::KeysNeeded(message, _) => row![
+                    container(text(message).size(12).style(text::danger)).width(Fill),
+                    button(text("Choose keys file\u{2026}").size(12))
+                        .padding([6, 12])
+                        .style(style::secondary_button)
+                        .on_press(Message::ChooseKeysFile),
+                ]
+                .spacing(SPACE_2)
+                .align_y(Alignment::Center)
+                .into(),
             });
 
         action_bar::bar(

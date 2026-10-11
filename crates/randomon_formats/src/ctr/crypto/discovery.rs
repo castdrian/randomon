@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
+use std::time::{Duration, Instant};
 
 use super::keys::KeyStore;
 
@@ -151,5 +152,201 @@ pub fn discover_keys() -> KeyStore {
             store.merge_file(&candidate);
         }
     }
+    if store.is_empty() {
+        for root in cloud_drive_roots() {
+            merge_cloud_drive(&mut store, &root);
+        }
+    }
     store
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct CloudKeyFiles {
+    pub available: Vec<PathBuf>,
+    pub evicted: Vec<PathBuf>,
+}
+
+const CLOUD_SEARCH_DEPTH: usize = 4;
+const CLOUD_SEARCH_ENTRY_BUDGET: usize = 20_000;
+const CLOUD_DOWNLOAD_WAIT: Duration = Duration::from_secs(3);
+const CLOUD_DOWNLOAD_POLL: Duration = Duration::from_millis(100);
+const EVICTED_SUFFIX: &str = ".icloud";
+const SKIPPED_CLOUD_DIRECTORIES: [&str; 10] = [
+    "Photos",
+    "Pictures",
+    "Movies",
+    "Music",
+    "Videos",
+    "Backups",
+    "Downloads",
+    "node_modules",
+    "target",
+    "Library",
+];
+const SKIPPED_CLOUD_EXTENSIONS: [&str; 6] = [
+    "app",
+    "photoslibrary",
+    "musiclibrary",
+    "fcpbundle",
+    "imovielibrary",
+    "bundle",
+];
+
+fn key_file_name(name: &str) -> bool {
+    name == AES_KEYS_FILE || name == BOOT9_FILE
+}
+
+fn evicted_key_file(name: &str) -> Option<&str> {
+    name.strip_prefix('.')?
+        .strip_suffix(EVICTED_SUFFIX)
+        .filter(|original| key_file_name(original))
+}
+
+fn skips_cloud_directory(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return true;
+    };
+    let skipped_extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            SKIPPED_CLOUD_EXTENSIONS
+                .iter()
+                .any(|skipped| extension.eq_ignore_ascii_case(skipped))
+        });
+    name.starts_with('.') || SKIPPED_CLOUD_DIRECTORIES.contains(&name) || skipped_extension
+}
+
+pub fn find_cloud_key_files(root: &Path, max_depth: usize) -> CloudKeyFiles {
+    let mut found = CloudKeyFiles::default();
+    let mut budget = CLOUD_SEARCH_ENTRY_BUDGET;
+    let mut pending = vec![(root.to_path_buf(), 0usize)];
+    while let Some((directory, depth)) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if budget == 0 {
+                return found;
+            }
+            budget -= 1;
+            let path = entry.path();
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if file_type.is_dir() {
+                if depth < max_depth && !skips_cloud_directory(&path) {
+                    pending.push((path, depth + 1));
+                }
+            } else if key_file_name(&name) {
+                found.available.push(path);
+            } else if let Some(original) = evicted_key_file(&name) {
+                found.evicted.push(directory.join(original));
+            }
+        }
+    }
+    found.available.sort();
+    found.evicted.sort();
+    found
+}
+
+fn cloud_drive_roots() -> Vec<PathBuf> {
+    if !cfg!(target_os = "macos") {
+        return Vec::new();
+    }
+    environment_directory("HOME")
+        .map(|home| {
+            home.join("Library")
+                .join("Mobile Documents")
+                .join("com~apple~CloudDocs")
+        })
+        .into_iter()
+        .filter(|root| root.is_dir())
+        .collect()
+}
+
+fn request_cloud_download(path: &Path) -> bool {
+    if !cfg!(target_os = "macos") {
+        return false;
+    }
+    let requested = std::process::Command::new("brctl")
+        .arg("download")
+        .arg(path)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if !requested {
+        return false;
+    }
+    let started = Instant::now();
+    while started.elapsed() < CLOUD_DOWNLOAD_WAIT {
+        if path.is_file() {
+            return true;
+        }
+        std::thread::sleep(CLOUD_DOWNLOAD_POLL);
+    }
+    path.is_file()
+}
+
+fn merge_cloud_drive(store: &mut KeyStore, root: &Path) {
+    let files = find_cloud_key_files(root, CLOUD_SEARCH_DEPTH);
+    for path in &files.available {
+        store.merge_file(path);
+    }
+    for path in files.evicted {
+        if request_cloud_download(&path) {
+            store.merge_file(&path);
+        } else {
+            store.add_pending_download(path);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch_directory(name: &str) -> PathBuf {
+        let directory = std::env::temp_dir().join(format!(
+            "randomon-cloud-search-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        directory
+    }
+
+    #[test]
+    fn finds_nested_and_evicted_key_files_within_bounds() {
+        let root = scratch_directory("bounds");
+        let nested = root.join("Emulation").join("3DS").join("sysdata");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join(AES_KEYS_FILE), "").unwrap();
+        let evicted = root.join("Backup Keys");
+        std::fs::create_dir_all(&evicted).unwrap();
+        std::fs::write(evicted.join(".boot9.bin.icloud"), "").unwrap();
+        let photos = root.join("Photos");
+        std::fs::create_dir_all(&photos).unwrap();
+        std::fs::write(photos.join(AES_KEYS_FILE), "").unwrap();
+        let too_deep = root.join("a").join("b").join("c").join("d").join("e");
+        std::fs::create_dir_all(&too_deep).unwrap();
+        std::fs::write(too_deep.join(AES_KEYS_FILE), "").unwrap();
+        let found = find_cloud_key_files(&root, CLOUD_SEARCH_DEPTH);
+        assert_eq!(found.available, vec![nested.join(AES_KEYS_FILE)]);
+        assert_eq!(found.evicted, vec![evicted.join(BOOT9_FILE)]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn evicted_names_map_back_to_key_files() {
+        assert_eq!(
+            evicted_key_file(".aes_keys.txt.icloud"),
+            Some(AES_KEYS_FILE)
+        );
+        assert_eq!(evicted_key_file(".boot9.bin.icloud"), Some(BOOT9_FILE));
+        assert_eq!(evicted_key_file(".notes.txt.icloud"), None);
+        assert_eq!(evicted_key_file("aes_keys.txt"), None);
+    }
 }
