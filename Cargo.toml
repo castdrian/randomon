@@ -44,7 +44,7 @@ randomon_ctr = { path = "crates/randomon_ctr" }
 randomon_gen6 = { path = "crates/randomon_gen6" }
 randomon_gen7 = { path = "crates/randomon_gen7" }
 thiserror = "2.0"
-base64 = "0.22"
+base64 = "0.23"
 crc32fast = "1.5"
 indexmap = "2.14"
 log = "0.4"
