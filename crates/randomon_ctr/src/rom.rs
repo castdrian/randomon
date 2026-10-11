@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, Cursor, Read, Seek};
 use std::path::Path;
@@ -76,6 +77,7 @@ fn open_ncch(mut source: BoxedSource) -> Result<Ncch<BoxedSource>> {
 pub struct CtrRom {
     base: Ncch<BoxedSource>,
     update: Option<Ncch<BoxedSource>>,
+    update_only_files: BTreeMap<String, Vec<u8>>,
     file_name: String,
 }
 
@@ -84,6 +86,7 @@ impl CtrRom {
         Ok(Self {
             base: open_ncch(source)?,
             update: None,
+            update_only_files: BTreeMap::new(),
             file_name: file_name.to_owned(),
         })
     }
@@ -92,6 +95,7 @@ impl CtrRom {
         let update = open_ncch(source)?;
         let version = update.version();
         self.update = Some(update);
+        self.update_only_files.clear();
         Ok(version)
     }
 
@@ -139,11 +143,16 @@ impl CtrRom {
     }
 
     pub fn write_file(&mut self, path: &str, data: &[u8]) -> Result<()> {
+        let in_base = self.base.has_file(path).map_err(format_error)?;
         self.base.write_file(path, data).map_err(format_error)?;
         if let Some(update) = &mut self.update
             && update.has_file(path).map_err(format_error)?
         {
             update.write_file(path, data).map_err(format_error)?;
+            if !in_base {
+                self.update_only_files
+                    .insert(path.to_owned(), data.to_vec());
+            }
         }
         Ok(())
     }
@@ -195,6 +204,14 @@ impl CtrRom {
             path: format!("{title_id}/{}", slash_path(&relative)),
             bytes,
         }));
+        files.extend(
+            self.update_only_files
+                .iter()
+                .map(|(path, bytes)| OutputFile {
+                    path: format!("{title_id}/romfs/{}", path.trim_start_matches('/')),
+                    bytes: bytes.clone(),
+                }),
+        );
         Ok(files)
     }
 

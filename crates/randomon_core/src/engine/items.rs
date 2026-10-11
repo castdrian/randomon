@@ -4,8 +4,9 @@ use randomon_data::{ItemList, PickupItem, Shop};
 use randomon_java::JavaRng;
 use randomon_settings::{FieldItemsMod, Settings};
 
+use crate::engine::choose::first_non_empty;
 use crate::engine::pool::all_pokemon_incl_formes_without_null;
-use crate::engine::util::random_index;
+use crate::engine::util::pick;
 use crate::error::{RandomizationError, Result};
 use crate::handler::RomHandler;
 
@@ -18,11 +19,13 @@ fn possible_items<H: RomHandler + ?Sized>(handler: &mut H, ban_bad_items: bool) 
 }
 
 fn distinct_rare(items: &ItemList, common: i32, random: &mut impl JavaRng) -> i32 {
-    let mut rare = items.random_item(random);
-    while rare == common {
-        rare = items.random_item(random);
+    for _ in 0..64 {
+        let rare = items.random_item(random);
+        if rare != common {
+            return rare;
+        }
     }
-    rare
+    items.random_item(random)
 }
 
 pub fn randomize_wild_held_items<H: RomHandler + ?Sized>(
@@ -180,13 +183,11 @@ pub fn randomize_field_items<H: RomHandler + ?Sized>(
         }
     }
     for _ in required_tms.len()..current_tms.len() {
-        loop {
-            let tm = random_index(&mut random, total_tm_count.max(0) as usize)? as i32 + 1;
-            if !new_tms.contains(&tm) {
-                new_tms.push(tm);
-                break;
-            }
-        }
+        let unused: Vec<i32> = (1..=total_tm_count)
+            .filter(|tm| !new_tms.contains(tm))
+            .collect();
+        let every: Vec<i32> = (1..=total_tm_count.max(1)).collect();
+        new_tms.push(pick(&mut random, &first_non_empty(&[&unused, &every]))?);
     }
     randomon_java::shuffle(&mut new_items, &mut random);
     randomon_java::shuffle(&mut new_tms, &mut random);
@@ -216,12 +217,7 @@ pub fn shuffle_shop_items<H: RomHandler + ?Sized>(handler: &mut H) -> Result<()>
 }
 
 fn unique_random_non_tm(items: &ItemList, existing: &[i32], random: &mut impl JavaRng) -> i32 {
-    loop {
-        let item = items.random_non_tm(random);
-        if !existing.contains(&item) {
-            return item;
-        }
-    }
+    items.random_non_tm_excluding(random, existing)
 }
 
 pub fn randomize_shop_items<H: RomHandler + ?Sized>(
@@ -301,16 +297,12 @@ pub fn randomize_shop_items<H: RomHandler + ?Sized>(
             let old = &current[&id];
             let mut shop_items = Vec::new();
             for _ in &old.items {
-                let mut position = 0;
-                let mut item = *new_items
-                    .get(position)
-                    .ok_or(RandomizationError::IndexOutOfBounds("newItems"))?;
-                while guaranteed.contains(&item) {
-                    position += 1;
-                    item = *new_items
-                        .get(position)
-                        .ok_or(RandomizationError::IndexOutOfBounds("newItems"))?;
-                }
+                let item = new_items
+                    .iter()
+                    .copied()
+                    .find(|item| !guaranteed.contains(item))
+                    .or_else(|| new_items.first().copied())
+                    .unwrap_or_else(|| possible.random_non_tm(&mut random));
                 shop_items.push(item);
                 crate::engine::util::remove_first(&mut new_items, &item);
             }
@@ -328,10 +320,12 @@ pub fn randomize_shop_items<H: RomHandler + ?Sized>(
             let old = &current[&id];
             let mut shop_items = Vec::new();
             for _ in &old.items {
-                if new_items.is_empty() {
-                    return Err(RandomizationError::IndexOutOfBounds("newItems"));
-                }
-                shop_items.push(new_items.remove(0));
+                let item = if new_items.is_empty() {
+                    possible.random_non_tm(&mut random)
+                } else {
+                    new_items.remove(0)
+                };
+                shop_items.push(item);
             }
             new_shops.insert(
                 id,
@@ -351,11 +345,10 @@ pub fn randomize_shop_items<H: RomHandler + ?Sized>(
         for (&id, old) in &current {
             let mut shop_items = Vec::new();
             for _ in &old.items {
-                shop_items.push(
-                    iterator
-                        .next()
-                        .ok_or(RandomizationError::IndexOutOfBounds("newItems"))?,
-                );
+                let item = iterator
+                    .next()
+                    .unwrap_or_else(|| possible.random_non_tm(&mut random));
+                shop_items.push(item);
             }
             new_shops.insert(
                 id,

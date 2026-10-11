@@ -3,10 +3,10 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use randomon_data::{EncounterSet, PokemonId, Type};
 use randomon_settings::{AbilitiesMod, Settings, WildPokemonRestrictionMod};
 
+use crate::engine::choose::{StrengthWindow, first_non_empty};
 use crate::engine::pool::{
     all_pokemon_incl_formes_without_null, check_pokemon_restrictions, non_cosmetic,
-    pokemon_of_type_choice, random_non_legendary_pokemon, random_non_legendary_pokemon_incl_formes,
-    random_pokemon_choice,
+    pokemon_of_type_choice,
 };
 use crate::engine::types::random_type;
 use crate::engine::util::{modified_level, pick, random_index, remove_all, remove_first};
@@ -163,6 +163,45 @@ fn is_cosmetic<H: RomHandler + ?Sized>(handler: &H, pokemon: PokemonId) -> bool 
     handler.core().data.pk(pokemon).actually_cosmetic
 }
 
+fn real_choices<H: RomHandler + ?Sized>(handler: &H, list: &[PokemonId]) -> Vec<PokemonId> {
+    let real: Vec<PokemonId> = list
+        .iter()
+        .copied()
+        .filter(|&pokemon| !is_cosmetic(handler, pokemon))
+        .collect();
+    first_non_empty(&[&real, list])
+}
+
+fn pick_real<H: RomHandler + ?Sized>(
+    handler: &H,
+    random: &mut impl randomon_java::JavaRng,
+    list: &[PokemonId],
+) -> Result<PokemonId> {
+    pick(random, &real_choices(handler, list))
+}
+
+fn take_real<H: RomHandler + ?Sized>(
+    handler: &H,
+    random: &mut impl randomon_java::JavaRng,
+    possible: &mut Vec<PokemonId>,
+    refill: &[PokemonId],
+) -> Result<PokemonId> {
+    if !possible
+        .iter()
+        .any(|&pokemon| !is_cosmetic(handler, pokemon))
+    {
+        possible.extend_from_slice(refill);
+    }
+    let picked = pick_real(handler, random, possible)?;
+    remove_first(possible, &picked);
+    Ok(picked)
+}
+
+fn fallback_pool<H: RomHandler + ?Sized>(handler: &H, options: &WildOptions) -> Vec<PokemonId> {
+    let pool = &handler.core().engine.pool;
+    first_non_empty(&[&base_pool(handler, options, true), &pool.main])
+}
+
 fn temp_pickable<H: RomHandler + ?Sized>(
     handler: &H,
     options: &WildOptions,
@@ -171,13 +210,13 @@ fn temp_pickable<H: RomHandler + ?Sized>(
 ) -> Result<Vec<PokemonId>> {
     let mut pickable = base_pool(handler, options, true);
     remove_all(&mut pickable, banned);
-    remove_all(&mut pickable, &area.banned_pokemon);
-    if pickable.is_empty() {
-        return Err(RandomizationError::randomization(
-            "ERROR: Couldn't replace a wild Pokemon!",
-        ));
-    }
-    Ok(pickable)
+    let without_area_bans: Vec<PokemonId> = pickable
+        .iter()
+        .copied()
+        .filter(|pokemon| !area.banned_pokemon.contains(pokemon))
+        .collect();
+    let fallback = fallback_pool(handler, options);
+    Ok(first_non_empty(&[&without_area_bans, &pickable, &fallback]))
 }
 
 fn refill(
@@ -197,26 +236,45 @@ pub fn pick_entirely_random_pokemon<H: RomHandler + ?Sized>(
     area: &EncounterSet,
     banned: &[PokemonId],
 ) -> Result<PokemonId> {
-    let draw = |handler: &mut H| -> Result<PokemonId> {
-        let non_legendary = if include_formes {
-            random_non_legendary_pokemon_incl_formes(handler)?
-        } else {
-            random_non_legendary_pokemon(handler)?
-        };
-        let any = random_pokemon_choice(handler, include_formes)?;
-        Ok(if no_legendaries { non_legendary } else { any })
+    pick_entirely_random_pokemon_avoiding(
+        handler,
+        include_formes,
+        no_legendaries,
+        area,
+        banned,
+        &[],
+    )
+}
+
+fn pick_entirely_random_pokemon_avoiding<H: RomHandler + ?Sized>(
+    handler: &mut H,
+    include_formes: bool,
+    no_legendaries: bool,
+    area: &EncounterSet,
+    banned: &[PokemonId],
+    avoid: &[PokemonId],
+) -> Result<PokemonId> {
+    check_pokemon_restrictions(handler);
+    let pool = &handler.core().engine.pool;
+    let source = match (no_legendaries, include_formes) {
+        (true, true) => first_non_empty(&[&pool.no_legendary_incl_formes, &pool.main_incl_formes]),
+        (true, false) => first_non_empty(&[&pool.no_legendary, &pool.main]),
+        (false, true) => first_non_empty(&[&pool.main_incl_formes, &pool.main]),
+        (false, false) => pool.main.clone(),
     };
-    let mut result = draw(handler)?;
-    while is_cosmetic(handler, result) {
-        result = draw(handler)?;
-    }
-    while banned.contains(&result) || area.is_banned(result) {
-        result = draw(handler)?;
-        while is_cosmetic(handler, result) {
-            result = draw(handler)?;
-        }
-    }
-    Ok(result)
+    let real = real_choices(handler, &source);
+    let allowed: Vec<PokemonId> = real
+        .iter()
+        .copied()
+        .filter(|&pokemon| !banned.contains(&pokemon) && !area.is_banned(pokemon))
+        .collect();
+    let fresh: Vec<PokemonId> = allowed
+        .iter()
+        .copied()
+        .filter(|pokemon| !avoid.contains(pokemon))
+        .collect();
+    let mut random = handler.core().engine.random.clone();
+    pick(&mut random, &first_non_empty(&[&fresh, &allowed, &real]))
 }
 
 pub fn pick_wild_power_lvl_replacement<H: RomHandler + ?Sized>(
@@ -230,30 +288,18 @@ pub fn pick_wild_power_lvl_replacement<H: RomHandler + ?Sized>(
     let data = &handler.core().data;
     let balanced_bst = bst_balance_level * 10 + 250;
     let current_bst = data.pk(current).bst_for_power_levels().min(balanced_bst);
-    let mut min_target = current_bst - current_bst / 10;
-    let mut max_target = current_bst + current_bst / 10;
-    let mut can_pick: Vec<PokemonId> = Vec::new();
-    let mut expand_rounds = 0;
-    while can_pick.is_empty() || (can_pick.len() < 3 && expand_rounds < 3) {
-        if pool.is_empty() && expand_rounds > 10_000 {
-            return Err(RandomizationError::EmptyChoice(
-                std::panic::Location::caller(),
-            ));
-        }
-        for &pokemon in pool {
-            let bst = data.pk(pokemon).bst_for_power_levels();
-            if bst >= min_target
-                && bst <= max_target
-                && (!ban_same_pokemon || pokemon != current)
-                && used_up.is_none_or(|used| !used.contains(&pokemon))
-                && !can_pick.contains(&pokemon)
-            {
-                can_pick.push(pokemon);
-            }
-        }
-        min_target -= current_bst / 20;
-        max_target += current_bst / 20;
-        expand_rounds += 1;
+    let window = StrengthWindow::around(current_bst, 3, 3);
+    let real = real_choices(handler, pool);
+    let preferred = |pokemon: PokemonId| {
+        (!ban_same_pokemon || pokemon != current)
+            && used_up.is_none_or(|used| !used.contains(&pokemon))
+    };
+    let mut can_pick = window.candidates(data, &real, preferred);
+    if can_pick.is_empty() {
+        can_pick = window.candidates(data, &real, |_| true);
+    }
+    if can_pick.is_empty() {
+        return Ok(current);
     }
     let mut random = handler.core().engine.random.clone();
     pick(&mut random, &can_pick)
@@ -266,19 +312,7 @@ fn power_level_pick_until_real<H: RomHandler + ?Sized>(
     used_up: Option<&[PokemonId]>,
     bst_balance_level: i32,
 ) -> Result<PokemonId> {
-    let mut picked =
-        pick_wild_power_lvl_replacement(handler, pool, current, false, used_up, bst_balance_level)?;
-    while is_cosmetic(handler, picked) {
-        picked = pick_wild_power_lvl_replacement(
-            handler,
-            pool,
-            current,
-            false,
-            used_up,
-            bst_balance_level,
-        )?;
-    }
-    Ok(picked)
+    pick_wild_power_lvl_replacement(handler, pool, current, false, used_up, bst_balance_level)
 }
 
 fn find_themed_pool<H: RomHandler + ?Sized>(
@@ -289,7 +323,7 @@ fn find_themed_pool<H: RomHandler + ?Sized>(
     area: &EncounterSet,
     minimum_size: usize,
 ) -> Result<Vec<PokemonId>> {
-    for _ in 0..10_000 {
+    for _ in 0..1_000 {
         let theme = random_type(handler);
         let typed = cache.entry(theme).or_insert_with(|| {
             let mut typed = pokemon_of_type_choice(
@@ -309,9 +343,12 @@ fn find_themed_pool<H: RomHandler + ?Sized>(
             return Ok(possible);
         }
     }
-    Err(RandomizationError::randomization(
-        "Could not randomize an area in a reasonable amount of attempts.",
-    ))
+    let mut fallback = fallback_pool(handler, options);
+    remove_all(&mut fallback, banned);
+    Ok(first_non_empty(&[
+        &fallback,
+        &fallback_pool(handler, options),
+    ]))
 }
 
 pub fn random_encounters<H: RomHandler + ?Sized>(
@@ -386,10 +423,7 @@ pub fn random_encounters<H: RomHandler + ?Sized>(
             let area = &mut current[area_index];
             let possible = find_themed_pool(handler, &options, &banned, &mut cache, area, 1)?;
             for index in 0..area.encounters.len() {
-                let mut picked = pick(&mut random, &possible)?;
-                while is_cosmetic(handler, picked) {
-                    picked = pick(&mut random, &possible)?;
-                }
+                let picked = pick_real(handler, &mut random, &possible)?;
                 assign(handler, area, index, picked)?;
             }
         }
@@ -410,7 +444,7 @@ pub fn random_encounters<H: RomHandler + ?Sized>(
                     } else {
                         100
                     };
-                let mut picked = pick_wild_power_lvl_replacement(
+                let picked = pick_wild_power_lvl_replacement(
                     handler,
                     &local_allowed,
                     encounter.pokemon,
@@ -418,16 +452,6 @@ pub fn random_encounters<H: RomHandler + ?Sized>(
                     None,
                     balance_level,
                 )?;
-                while is_cosmetic(handler, picked) {
-                    picked = pick_wild_power_lvl_replacement(
-                        handler,
-                        &local_allowed,
-                        picked,
-                        false,
-                        None,
-                        balance_level,
-                    )?;
-                }
                 assign(handler, area, index, picked)?;
             }
         }
@@ -543,13 +567,11 @@ fn area_1to1_encounters_impl<H: RomHandler + ?Sized>(
             let in_area = pokemon_in_area(area);
             let mut possible =
                 find_themed_pool(handler, &options, &banned, &mut cache, area, in_area.len())?;
+            let themed_pool = possible.clone();
             let mut area_map: BTreeMap<PokemonId, PokemonId> = BTreeMap::new();
             for &area_pokemon in &in_area {
-                let mut picked_index = random_index(&mut random, possible.len())?;
-                while is_cosmetic(handler, possible[picked_index]) {
-                    picked_index = random_index(&mut random, possible.len())?;
-                }
-                area_map.insert(area_pokemon, possible.remove(picked_index));
+                let picked = take_real(handler, &mut random, &mut possible, &themed_pool)?;
+                area_map.insert(area_pokemon, picked);
             }
             apply_area_map(handler, area, &area_map, &[])?;
         }
@@ -584,22 +606,15 @@ fn area_1to1_encounters_impl<H: RomHandler + ?Sized>(
             let in_area = pokemon_in_area(&area_snapshot);
             let mut area_map: BTreeMap<PokemonId, PokemonId> = BTreeMap::new();
             for &area_pokemon in &in_area {
-                let mut picked = pick_entirely_random_pokemon(
+                let used: Vec<PokemonId> = area_map.values().copied().collect();
+                let picked = pick_entirely_random_pokemon_avoiding(
                     handler,
                     options.allow_alt_formes,
                     options.no_legendaries,
                     &area_snapshot,
                     &banned,
+                    &used,
                 )?;
-                while area_map.values().any(|&value| value == picked) {
-                    picked = pick_entirely_random_pokemon(
-                        handler,
-                        options.allow_alt_formes,
-                        options.no_legendaries,
-                        &area_snapshot,
-                        &banned,
-                    )?;
-                }
                 area_map.insert(area_pokemon, picked);
             }
             apply_area_map(handler, &mut current[area_index], &area_map, &[])?;
@@ -639,14 +654,13 @@ pub fn game_1to1_encounters<H: RomHandler + ?Sized>(
             translate.insert(left, right);
         } else {
             let left_index = random_index(&mut random, remaining_left.len())?;
-            let mut right_index = random_index(&mut random, remaining_right.len())?;
             let left = remaining_left.remove(left_index);
             let data = &handler.core().data;
-            while data.pk(left).number == data.pk(remaining_right[right_index]).number
-                && remaining_right.len() != 1
-            {
-                right_index = random_index(&mut random, remaining_right.len())?;
-            }
+            let different: Vec<usize> = (0..remaining_right.len())
+                .filter(|&index| data.pk(left).number != data.pk(remaining_right[index]).number)
+                .collect();
+            let all_indices: Vec<usize> = (0..remaining_right.len()).collect();
+            let right_index = pick(&mut random, &first_non_empty(&[&different, &all_indices]))?;
             let right = remaining_right.remove(right_index);
             translate.insert(left, right);
         }
@@ -896,10 +910,7 @@ fn enhance_random_encounters_oras<H: RomHandler + ?Sized>(
                     let possible =
                         find_themed_pool(handler, &options, &banned, &mut cache, &snapshot, 1)?;
                     for index in 0..snapshot.encounters.len() {
-                        let mut picked = pick(&mut random, &possible)?;
-                        while is_cosmetic(handler, picked) {
-                            picked = pick(&mut random, &possible)?;
-                        }
+                        let picked = pick_real(handler, &mut random, &possible)?;
                         assign(handler, &mut collapsed[area_index], index, picked)?;
                     }
                 } else {
@@ -981,8 +992,7 @@ fn randomize_oras_encounter<H: RomHandler + ?Sized>(
             assign(handler, &mut collapsed[area_index], index, picked)?;
         }
     } else if options.type_themed {
-        let theme = type_for_area(handler, &area_snapshot)
-            .ok_or(RandomizationError::NullPointer("area type"))?;
+        let theme = type_for_area(handler, &area_snapshot).unwrap_or_else(|| random_type(handler));
         let typed = cache.entry(theme).or_insert_with(|| {
             let mut typed = pokemon_of_type_choice(
                 handler,
@@ -996,25 +1006,16 @@ fn randomize_oras_encounter<H: RomHandler + ?Sized>(
         let mut possible = typed.clone();
         remove_all(&mut possible, &area_snapshot.banned_pokemon);
         if possible.is_empty() {
-            return Err(RandomizationError::randomization(
-                "Could not find a possible Pokemon of the correct type.",
-            ));
+            possible = fallback_pool(handler, options);
         }
-        let mut picked = pick(&mut random, &possible)?;
-        while is_cosmetic(handler, picked) {
-            picked = pick(&mut random, &possible)?;
-        }
+        let picked = pick_real(handler, &mut random, &possible)?;
         assign(handler, &mut collapsed[area_index], index, picked)?;
     } else if options.use_power_levels {
         let mut allowed = base_pool(handler, options, false);
         remove_all(&mut allowed, banned);
         remove_all(&mut allowed, &area_snapshot.banned_pokemon);
         let current = area_snapshot.encounters[index].pokemon;
-        let mut picked =
-            pick_wild_power_lvl_replacement(handler, &allowed, current, false, None, 100)?;
-        while is_cosmetic(handler, picked) {
-            picked = pick_wild_power_lvl_replacement(handler, &allowed, picked, false, None, 100)?;
-        }
+        let picked = pick_wild_power_lvl_replacement(handler, &allowed, current, false, None, 100)?;
         assign(handler, &mut collapsed[area_index], index, picked)?;
     } else {
         let picked = pick_entirely_random_pokemon(

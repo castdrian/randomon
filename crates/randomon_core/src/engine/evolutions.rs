@@ -4,6 +4,7 @@ use randomon_data::constants::{global, species};
 use randomon_data::{Evolution, EvolutionId, EvolutionType, EvolutionUpdate, GameData, PokemonId};
 use randomon_settings::{AbilitiesMod, Settings};
 
+use crate::engine::choose::{StrengthWindow, first_non_empty};
 use crate::engine::pool::{
     check_pokemon_restrictions, find_pokemon_in_pool_with_species_id, non_cosmetic,
 };
@@ -743,36 +744,11 @@ fn pick_evo_power_lvl_replacement<H: RomHandler + ?Sized>(
 ) -> Result<PokemonId> {
     let data = &handler.core().data;
     let already_picked = &handler.core().engine.already_picked;
-    let current_bst = data.pk(current).bst_for_power_levels();
-    let mut min_target = current_bst - current_bst / 10;
-    let mut max_target = current_bst + current_bst / 10;
-    let mut can_pick: Vec<PokemonId> = Vec::new();
-    let mut emergency: Vec<PokemonId> = Vec::new();
-    let mut expand_rounds = 0;
-    while can_pick.is_empty() || (can_pick.len() < 3 && expand_rounds < 3) {
-        for &pokemon in pool {
-            let bst = data.pk(pokemon).bst_for_power_levels();
-            if bst >= min_target
-                && bst <= max_target
-                && !can_pick.contains(&pokemon)
-                && !emergency.contains(&pokemon)
-            {
-                if already_picked.contains(&pokemon) {
-                    emergency.push(pokemon);
-                } else {
-                    can_pick.push(pokemon);
-                }
-            }
-        }
-        if expand_rounds >= 2 && can_pick.is_empty() {
-            can_pick.extend(emergency.iter().copied());
-        }
-        min_target -= current_bst / 20;
-        max_target += current_bst / 20;
-        expand_rounds += 1;
-    }
+    let window = StrengthWindow::around(data.pk(current).bst_for_power_levels(), 3, 3);
+    let fresh = window.candidates(data, pool, |pokemon| !already_picked.contains(&pokemon));
+    let any = window.candidates(data, pool, |_| true);
     let mut random = handler.core().engine.random.clone();
-    pick(&mut random, &can_pick)
+    pick(&mut random, &first_non_empty(&[&fresh, &any, pool]))
 }
 
 pub fn randomize_evolutions_every_level<H: RomHandler + ?Sized>(

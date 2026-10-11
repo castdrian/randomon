@@ -23,15 +23,12 @@ fn pick_random_ability_variation<H: RomHandler + ?Sized>(
     already_set: &[i32],
 ) -> Result<i32> {
     let mut random = handler.core().engine.random.clone();
-    let mut new_ability = selected;
-    loop {
-        let variations = handler.get_ability_variations();
-        if let Some(options) = variations.get(&selected) {
-            new_ability = crate::engine::util::pick(&mut random, options)?;
+    let variations = handler.get_ability_variations();
+    match variations.get(&selected) {
+        Some(options) if !options.is_empty() => {
+            crate::engine::choose::pick_unused(&mut random, options, already_set)
         }
-        if !already_set.contains(&new_ability) {
-            return Ok(new_ability);
-        }
+        _ => Ok(selected),
     }
 }
 
@@ -41,16 +38,19 @@ fn pick_random_ability<H: RomHandler + ?Sized>(
     already_set: &[i32],
 ) -> Result<i32> {
     let mut random = handler.core().engine.random.clone();
-    loop {
-        let new_ability = random.next_int_bounded(picker.max_ability) + 1;
-        if picker.banned.contains(&new_ability) || already_set.contains(&new_ability) {
-            continue;
-        }
-        if picker.use_variations {
-            return pick_random_ability_variation(handler, new_ability, already_set);
-        }
-        return Ok(new_ability);
+    let candidates: Vec<i32> = (1..=picker.max_ability.max(1))
+        .filter(|ability| !picker.banned.contains(ability))
+        .collect();
+    let allowed = if candidates.is_empty() {
+        (1..=picker.max_ability.max(1)).collect()
+    } else {
+        candidates
+    };
+    let new_ability = crate::engine::choose::pick_unused(&mut random, &allowed, already_set)?;
+    if picker.use_variations {
+        return pick_random_ability_variation(handler, new_ability, already_set);
     }
+    Ok(new_ability)
 }
 
 fn has_wonder_guard<H: RomHandler + ?Sized>(handler: &H, pokemon: PokemonId) -> bool {
