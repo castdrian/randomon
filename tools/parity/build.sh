@@ -3,7 +3,7 @@ set -euo pipefail
 
 parity_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${parity_dir}/../.." && pwd)"
-upstream_src="${repo_root}/upstream/src"
+upstream_src="${RANDOMON_UPSTREAM:-${repo_root}/target/upstream}/src"
 classes_dir="${repo_root}/target/parity/classes"
 
 rm -rf "${classes_dir}"

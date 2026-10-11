@@ -3,7 +3,7 @@ set -euo pipefail
 
 harness_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${harness_dir}/../../.." && pwd)"
-upstream_src="${repo_root}/upstream/src"
+upstream_src="${RANDOMON_UPSTREAM:-${repo_root}/target/upstream}/src"
 config_dir="${upstream_src}/com/dabomstew/pkrandom/config"
 classes_dir="${harness_dir}/build/classes"
 work_dir="${harness_dir}/build/work"

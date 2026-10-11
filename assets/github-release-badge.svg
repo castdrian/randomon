@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="236" height="60" viewBox="0 0 236 60" role="img" aria-labelledby="title description">
-<title id="title">Download the latest Randomon release</title>
-<desc id="description">Open the latest Randomon GitHub release</desc>
+<title id="title">Download the latest randomon release</title>
+<desc id="description">Open the latest randomon GitHub release</desc>
 <rect x="1" y="1" width="234" height="58" rx="18" fill="#000" stroke="#373737" stroke-width="2"/>
 <circle cx="30" cy="30" r="22" fill="#f5f5f7"/>
 <g transform="translate(10.8 9.6) scale(1.6)">

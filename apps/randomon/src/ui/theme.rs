@@ -10,7 +10,7 @@ pub fn for_mode(mode: Mode) -> Theme {
 
 fn dark() -> Theme {
     Theme::custom(
-        "Randomon Dark",
+        "randomon Dark",
         Palette {
             background: Color::from_rgb8(0x10, 0x12, 0x18),
             text: Color::from_rgb8(0xE8, 0xEA, 0xF0),
@@ -24,7 +24,7 @@ fn dark() -> Theme {
 
 fn light() -> Theme {
     Theme::custom(
-        "Randomon Light",
+        "randomon Light",
         Palette {
             background: Color::from_rgb8(0xF6, 0xF7, 0xFB),
             text: Color::from_rgb8(0x14, 0x16, 0x1C),

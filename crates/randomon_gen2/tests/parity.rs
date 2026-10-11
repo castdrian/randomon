@@ -178,7 +178,7 @@ fn java_command(
     let classpath = format!(
         "{}:{}",
         root.join("target/parity/classes").display(),
-        root.join("upstream/src").display()
+        upstream_root(root).join("src").display()
     );
     let mut command = Command::new("java");
     command
@@ -348,4 +348,10 @@ fn compare_all(
         eprintln!("  {failure}");
     }
     assert!(failures.is_empty(), "{summary}");
+}
+
+fn upstream_root(root: &std::path::Path) -> std::path::PathBuf {
+    std::env::var_os("RANDOMON_UPSTREAM")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| root.join("target/upstream"))
 }

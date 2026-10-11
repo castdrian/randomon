@@ -219,7 +219,7 @@ fn run_java(root: &Path, work: &Path, rom_path: &str, jobs: &[&Job], java_out: &
                 let classpath = format!(
                     "{}:{}",
                     worker_classes(root, work, worker).display(),
-                    root.join("upstream/src").display()
+                    upstream_root(root).join("src").display()
                 );
                 loop {
                     let index = next.fetch_add(1, Ordering::SeqCst);
@@ -431,4 +431,10 @@ fn compare_all(
         eprintln!("  {failure}");
     }
     assert!(failures.is_empty(), "{summary}");
+}
+
+fn upstream_root(root: &std::path::Path) -> std::path::PathBuf {
+    std::env::var_os("RANDOMON_UPSTREAM")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| root.join("target/upstream"))
 }

@@ -1,16 +1,16 @@
-# Randomon
+# randomon
 
 [![Release](https://github.com/castdrian/randomon/actions/workflows/release.yml/badge.svg)](https://github.com/castdrian/randomon/actions/workflows/release.yml)
 [![CI](https://github.com/castdrian/randomon/actions/workflows/ci.yml/badge.svg)](https://github.com/castdrian/randomon/actions/workflows/ci.yml)
 
 A fast, native Pokémon randomizer for macOS, Windows and Linux. Reads Universal Pokemon Randomizer ZX settings and seeds, and randomizes Brilliant Diamond and Shining Pearl.
 
-<p align="center"><img src="assets/screenshots/app.png" alt="Randomon with Pokémon Yellow loaded, showing the Pokémon Traits options" width="100%"></p>
+<p align="center"><img src="assets/screenshots/app.png" alt="randomon with Pokémon Yellow loaded, showing the Pokémon Traits options" width="100%"></p>
 
 ## Download
 
 <p>
-  <a href="https://github.com/castdrian/randomon/releases/latest"><img src="assets/github-release-badge.svg" alt="Download the latest Randomon release" height="60"></a>
+  <a href="https://github.com/castdrian/randomon/releases/latest"><img src="assets/github-release-badge.svg" alt="Download the latest randomon release" height="60"></a>
 </p>
 
 ## Features
@@ -27,7 +27,7 @@ A fast, native Pokémon randomizer for macOS, Windows and Linux. Reads Universal
 
 ## Credits
 
-Built on [Universal Pokemon Randomizer ZX](https://github.com/Ajarmar/universal-pokemon-randomizer-zx) by Ajarmar, darkeye and cleartonic, based on Dabomstew's Universal Pokemon Randomizer, and on [BDSP-Randomizers](https://github.com/Ai0796/BDSP-Randomizers) by Aldo796, Copycat, SanGawku, XLuma and Red. Randomon ships no game data, so bring your own legally dumped games.
+Built on [Universal Pokemon Randomizer ZX](https://github.com/Ajarmar/universal-pokemon-randomizer-zx) by Ajarmar, darkeye and cleartonic, based on Dabomstew's Universal Pokemon Randomizer, and on [BDSP-Randomizers](https://github.com/Ai0796/BDSP-Randomizers) by Aldo796, Copycat, SanGawku, XLuma and Red. randomon ships no game data, so bring your own legally dumped games.
 
 ## Contributors
 
