@@ -13,6 +13,7 @@ members = [
     "crates/randomon_gen1",
     "crates/randomon_gen2",
     "crates/randomon_nds",
+    "crates/randomon_gen4",
     "crates/randomon_gen5",
     "crates/randomon_ctr",
     "crates/randomon_gen6",
@@ -42,6 +43,7 @@ randomon_gb = { path = "crates/randomon_gb" }
 randomon_gen1 = { path = "crates/randomon_gen1" }
 randomon_gen2 = { path = "crates/randomon_gen2" }
 randomon_nds = { path = "crates/randomon_nds" }
+randomon_gen4 = { path = "crates/randomon_gen4" }
 randomon_gen5 = { path = "crates/randomon_gen5" }
 randomon_ctr = { path = "crates/randomon_ctr" }
 randomon_gen6 = { path = "crates/randomon_gen6" }
