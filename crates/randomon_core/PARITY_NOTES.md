@@ -26,12 +26,16 @@ Decisions taken while porting `Randomizer.java`, `AbstractRomHandler.java` and t
 UPR throws in these cases, and Randomon returns an error instead of output:
 
 - `pickTrainerMovesets` on Gen 1: Gen 1 Pokémon have `spatk == 0`, so the attack ratio is infinite and Java runs out of memory adding moves. Randomon stops with an `OutOfMemoryError` message once the requested copies exceed 50 million. Past that point Java would also reach the `Effectiveness.against` null in `getSoftMoveSynergy`.
-- `copyUpEvolutionsHelper` after "random every level" evolutions, when an evolution cycle has no base Pokémon: Java keeps pushing onto a stack until the heap runs out, and Randomon stops after 100,000 steps.
 - Gen 1 trainer edits that change the size of the trainer data: double battles, additional Pokémon, and held items (which switch a trainer to the special format). The data spills into the next trainer class, later reads find an unused species, and Java fails with a `NullPointerException`. Randomon's Gen 1 `get_trainers` reports the same null.
 - `randomizeEvolutions`/`randomizeEvolutionsEveryLevel` throw `Not able to randomize evolutions in a sane amount of retries.` when a growth curve has no candidate. That message is kept.
 - `getStarters().subList(0, 3)` on Yellow when "Elite Four unique Pokémon" and "rival carries starter" are both set.
 
-Some smaller cases are handled the same way: empty choice lists (`Random.nextInt(0)`), out-of-range indexes and `null` dereferences on paths that real ROMs reach. Each returns a `RandomizationError` rather than panicking.
+## Upstream failures that Randomon completes
+
+- `copyUpEvolutionsHelper` after "random every level" evolutions, when an evolution cycle has no base Pokémon: Java keeps pushing onto a stack until the heap runs out. Randomon treats the first Pokémon that repeats in the walk as a base Pokémon and carries on. Chains that do reach a base are copied exactly as before.
+- `setIllegalEvos`, `setIllegalPreEvos` and `traverseEvolutions` recurse along evolution cycles until Java throws `StackOverflowError` (for example "random every level" with "rival carries starter"). Randomon stops at Pokémon already on the current path, so acyclic chains give the same lists as Java.
+
+Some smaller cases are handled the same way as the reproduced failures above: empty choice lists (`Random.nextInt(0)`), out-of-range indexes and `null` dereferences on paths that real ROMs reach. Each returns a `RandomizationError` rather than panicking.
 
 ## What every generation handler implements
 
@@ -47,4 +51,13 @@ The trait in `handler.rs` splits into two parts.
 - A game update is loaded after the base ROM and the handler reloads all of its data, like `loadGameUpdate` calling `loadedROM` again. Files the update contains are read from the update, writes go to the base ROM and to the update copy, and LayeredFS output comes from the base ROM. The CLI forces save-as-directory when `-u` is given, as `CliRandomizer` does.
 - N3DS text (`randomon_formats::ctr::text`) is ported with UPR's quirks: unknown text variables are printed as hex but parsed back as decimal, and when an entry cannot be encoded (`IOException`) the whole text file is left unchanged, as `setStrings` catches and prints the exception.
 - UPR's `NCCH` extracts files into `tmp_<rom name>` next to the jar, so two UPR processes on the same ROM share and corrupt each other's files. The parity harness gives every Java worker its own copy of the compiled classes, which moves that folder, and runs one JVM per job. Gen 7 needs `-Xmx4g`; with 2 GB UPR runs out of heap while rebuilding the encounter GARC.
-- Upstream failures reproduced as errors: `randomizeEvolutions` with alternate formes (`originalEvos.get` returns null), `copyUpEvolutionsHelper` cycles under "random every level" (Java heap exhaustion), and empty trainer pools (`nextInt(0)`).
+- Upstream failures reproduced as errors: `randomizeEvolutions` with alternate formes (`originalEvos.get` returns null) and empty trainer pools (`nextInt(0)`). `copyUpEvolutionsHelper` cycles now complete, as described above.
+
+## GBA (Gen 3)
+
+- The handler reads the ROM through bounds-checked accessors. Out-of-range reads return `0xFF`, writes outside the ROM are dropped, and every scan stops at the end of the ROM, so damaged or hacked ROMs cannot make it panic or loop.
+- `getStaticPokemon` applies the first-battle, Ghost Marowak and roamer IPS patches the first time it runs, and the map scan (field items, TM and tutor text locations) and the pickup table lookup run on first use. UPR always reaches all of these before writing anything they depend on, so Randomon runs them while loading: getters stay read-only and the output is the same.
+- When the free space search from `FreeSpace` finds nothing, UPR throws `ROM is full`. Randomon pads the ROM with `0xFF` up to 32 MiB and searches again. The same padding lets IPS patches that end past a short ROM apply.
+- Places where UPR would throw or corrupt data and Randomon does the safe thing instead: `RunWithoutRunningShoes` writes to offset `0x11` of the header when its prefix is missing (`offset != 0` accepts `-1`), and Randomon only patches a real match; `applyCorrectStaticMusic` walks past the music pool until an index error when a static is missing from it, and Randomon only searches the pool; the Ruby/Sapphire intro loop that never ends when every candidate is Bulbasaur or above index 510 is bounded; species and pointers outside the tables fall back to the first Pokémon instead of an index error; shop and egg move writes never run past the original table and end with a terminator when they shrink; trainer tags and multi-battle flags skip trainers that a short trainer table does not have; a broken move tutor text pointer is logged and skipped instead of throwing.
+- When "limit Pokémon" leaves an empty pool, Randomon falls back to the full Pokémon list instead of failing on `Random.nextInt(0)`.
+- FireRed 1.0 ROMs whose CRC32 differs from the retail one go through UPR's ROM hack detection, as in UPR. A randomized FireRed 1.0 ROM is therefore loaded as a hack when it is fed back in.

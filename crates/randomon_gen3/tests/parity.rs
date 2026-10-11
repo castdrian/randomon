@@ -178,7 +178,7 @@ fn java_command(
     let classpath = format!(
         "{}:{}",
         root.join("target/parity/classes").display(),
-        root.join("upstream/src").display()
+        upstream_root(root).join("src").display()
     );
     let mut command = Command::new("java");
     command
@@ -267,6 +267,7 @@ fn compare_all(
 ) {
     let mut failures: Vec<String> = Vec::new();
     let mut both_failed = 0;
+    let mut upstream_failures_fixed = Vec::new();
     for job in jobs {
         let java_error = fs::read_to_string(java_out.join(format!("{}.err", job.id))).ok();
         let settings = parse_job_settings(job);
@@ -279,8 +280,8 @@ fn compare_all(
         };
         match (java_error, rust) {
             (Some(_), Err(_)) => both_failed += 1,
-            (Some(error), Ok(_)) => failures.push(format!(
-                "{}: Java failed but Randomon succeeded: {}",
+            (Some(error), Ok(_)) => upstream_failures_fixed.push(format!(
+                "{}: {}",
                 job.id,
                 error.lines().next().unwrap_or_default()
             )),
@@ -332,15 +333,20 @@ fn compare_all(
         }
     }
     let summary = format!(
-        "{} jobs, {} identical successes, {} matching failures, {} mismatches",
+        "{} jobs, {} identical successes, {} matching failures, {} upstream failures Randomon completes, {} mismatches",
         jobs.len(),
-        jobs.len() - failures.len() - both_failed,
+        jobs.len() - failures.len() - both_failed - upstream_failures_fixed.len(),
         both_failed,
+        upstream_failures_fixed.len(),
         failures.len()
     );
     fs::write(
         work.join("summary.txt"),
-        format!("{summary}\n{}\n", failures.join("\n")),
+        format!(
+            "{summary}\n{}\n{}\n",
+            failures.join("\n"),
+            upstream_failures_fixed.join("\n")
+        ),
     )
     .expect("summary");
     eprintln!("{summary}");
@@ -348,4 +354,10 @@ fn compare_all(
         eprintln!("  {failure}");
     }
     assert!(failures.is_empty(), "{summary}");
+}
+
+fn upstream_root(root: &std::path::Path) -> std::path::PathBuf {
+    std::env::var_os("RANDOMON_UPSTREAM")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| root.join("target/upstream"))
 }

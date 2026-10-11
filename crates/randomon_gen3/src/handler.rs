@@ -578,16 +578,13 @@ impl Gen3RomHandler {
         let mut list = vec![None];
         for number in 1..=self.pokedex_count.max(0) {
             let id = PokemonId::from_index(number as usize);
-            let exists = self.core.data.exists(id);
-            if !self.is_rom_hack {
-                list.push(exists.then_some(id));
+            if !self.core.data.exists(id) {
                 continue;
             }
-            if exists {
-                let lower_name = java_lower_case(&self.core.data.pk(id).name);
-                if !lower_name.contains("unused") && lower_name != "?" {
-                    list.push(Some(id));
-                }
+            let lower_name = java_lower_case(&self.core.data.pk(id).name);
+            let is_unused = lower_name.contains("unused") || lower_name == "?";
+            if !self.is_rom_hack || !is_unused {
+                list.push(Some(id));
             }
         }
         self.pokemon_list = list;
