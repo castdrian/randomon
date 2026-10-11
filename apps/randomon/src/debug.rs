@@ -9,6 +9,7 @@ pub struct DebugBoot {
     pub generation: Option<i32>,
     pub search: Option<String>,
     pub dialog: Option<String>,
+    pub update_version: Option<String>,
 }
 
 impl DebugBoot {
@@ -19,6 +20,7 @@ impl DebugBoot {
             generation: variable("RANDOMON_DEBUG_GENERATION").and_then(|value| value.parse().ok()),
             search: variable("RANDOMON_DEBUG_SEARCH"),
             dialog: variable("RANDOMON_DEBUG_DIALOG"),
+            update_version: variable("RANDOMON_DEBUG_UPDATE_VERSION"),
         }
     }
 }

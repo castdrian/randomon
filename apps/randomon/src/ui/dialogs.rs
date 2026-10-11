@@ -1,8 +1,8 @@
 use iced::widget::{
-    Column, button, center, column, container, mouse_area, opaque, row, scrollable, space, text,
-    toggler,
+    Column, button, center, column, container, mouse_area, opaque, row, rule, scrollable, space,
+    text, toggler,
 };
-use iced::{Alignment, Element, Fill};
+use iced::{Alignment, Element, Fill, Font};
 use randomon_settings::{CustomNames, GenRestrictions};
 
 use crate::bundle;
@@ -134,10 +134,18 @@ impl NamesTab {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Feedback {
+    Done(String),
+    Problem(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Dialog {
     GenerationLimits(GenerationLimitDraft),
     CustomNames(NamesTab),
+    SettingsSharing(Option<Feedback>),
+    ConfirmRemoveUpdate,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -146,7 +154,18 @@ pub enum DialogMessage {
     SetRelatives(bool),
     ConfirmGenerationLimits,
     ShowNames(NamesTab),
+    CopySettingsString,
+    PasteSettingsString,
+    ImportSettingsFile,
+    ExportSettingsFile,
+    RemoveUpdate,
     Close,
+}
+
+pub struct DialogContext<'a> {
+    pub custom_names: &'a CustomNames,
+    pub settings_string: &'a str,
+    pub can_export: bool,
 }
 
 pub fn modal<'a, Message: Clone + 'a>(
@@ -164,11 +183,171 @@ pub fn modal<'a, Message: Clone + 'a>(
     )
 }
 
-pub fn view<'a>(dialog: &Dialog, custom_names: &'a CustomNames) -> Element<'a, DialogMessage> {
+pub fn view<'a>(dialog: &'a Dialog, context: DialogContext<'a>) -> Element<'a, DialogMessage> {
     match dialog {
         Dialog::GenerationLimits(draft) => generation_limits(draft),
-        Dialog::CustomNames(tab) => custom_names_preview(*tab, custom_names),
+        Dialog::CustomNames(tab) => custom_names_preview(*tab, context.custom_names),
+        Dialog::SettingsSharing(feedback) => settings_sharing(&context, feedback.as_ref()),
+        Dialog::ConfirmRemoveUpdate => confirm_remove_update(),
     }
+}
+
+fn settings_sharing<'a>(
+    context: &DialogContext<'a>,
+    feedback: Option<&'a Feedback>,
+) -> Element<'a, DialogMessage> {
+    let has_string = !context.settings_string.is_empty();
+    let export_explanation = if context.can_export {
+        "Save the current options as a .rnqs settings file."
+    } else {
+        "Load a game first, then save its options as a .rnqs settings file."
+    };
+    let mut content = column![
+        heading(
+            "Settings",
+            "Share your options or keep them for later. The seed isn't part of the settings string."
+        ),
+        settings_string_field(
+            context.settings_string,
+            "Load a game to get a settings string.",
+            has_string.then_some(DialogMessage::CopySettingsString),
+        ),
+        rule::horizontal(1),
+        sharing_action(
+            "Paste settings string",
+            "Apply a settings string from your clipboard.",
+            "Paste",
+            Some(DialogMessage::PasteSettingsString),
+        ),
+        sharing_action(
+            "Import file…",
+            "Open a .rnqs settings file, or a .rndp preset, which also sets the seed.",
+            "Import…",
+            Some(DialogMessage::ImportSettingsFile),
+        ),
+        sharing_action(
+            "Export file…",
+            export_explanation,
+            "Export…",
+            context
+                .can_export
+                .then_some(DialogMessage::ExportSettingsFile),
+        ),
+    ]
+    .spacing(SPACE_2);
+    if let Some(feedback) = feedback {
+        content = content.push(feedback_note(feedback));
+    }
+    content = content.push(done_footer(DialogMessage::Close));
+    frame(content, 540.0)
+}
+
+fn confirm_remove_update<'a>() -> Element<'a, DialogMessage> {
+    let content = column![
+        heading(
+            "Remove the loaded update?",
+            "Output will be a full ROM instead of LayeredFS."
+        ),
+        dialog_buttons(
+            button(text("Remove"))
+                .padding([8, 20])
+                .style(style::danger_button)
+                .on_press(DialogMessage::RemoveUpdate)
+                .into(),
+            Some("Cancel"),
+        ),
+    ]
+    .spacing(SPACE_3);
+    frame(content, 420.0)
+}
+
+pub fn heading<'a, Message: 'a>(title: &'a str, explanation: &'a str) -> Element<'a, Message> {
+    column![
+        text(title).size(20).font(SEMIBOLD),
+        text(explanation).size(13).style(style::muted_text),
+    ]
+    .spacing(6)
+    .into()
+}
+
+pub fn settings_string_field<'a, Message: Clone + 'a>(
+    value: &'a str,
+    placeholder: &'a str,
+    on_copy: Option<Message>,
+) -> Element<'a, Message> {
+    let shown = if value.is_empty() {
+        text(placeholder).size(13).style(style::muted_text)
+    } else {
+        text(value)
+            .size(12)
+            .font(Font::MONOSPACE)
+            .wrapping(text::Wrapping::Glyph)
+    };
+    column![
+        text("Settings string").size(13).font(SEMIBOLD),
+        row![
+            container(shown)
+                .padding([10, 12])
+                .width(Fill)
+                .style(style::read_only_field),
+            button(container(text("Copy")).center_x(Fill))
+                .padding([8, 16])
+                .width(110)
+                .style(style::secondary_button)
+                .on_press_maybe(on_copy),
+        ]
+        .spacing(SPACE_2)
+        .align_y(Alignment::Center),
+    ]
+    .spacing(6)
+    .into()
+}
+
+pub fn sharing_action<'a, Message: Clone + 'a>(
+    title: &'a str,
+    explanation: &'a str,
+    label: &'a str,
+    on_press: Option<Message>,
+) -> Element<'a, Message> {
+    row![
+        column![
+            text(title).size(14).font(SEMIBOLD),
+            text(explanation).size(12).style(style::muted_text),
+        ]
+        .spacing(2)
+        .width(Fill),
+        button(container(text(label)).center_x(Fill))
+            .padding([8, 16])
+            .width(110)
+            .style(style::secondary_button)
+            .on_press_maybe(on_press),
+    ]
+    .spacing(SPACE_2)
+    .align_y(Alignment::Center)
+    .into()
+}
+
+pub fn feedback_note<'a, Message: 'a>(feedback: &'a Feedback) -> Element<'a, Message> {
+    let (message, note): (&str, fn(&iced::Theme) -> container::Style) = match feedback {
+        Feedback::Done(message) => (message, style::success_note),
+        Feedback::Problem(message) => (message, style::danger_note),
+    };
+    container(text(message).size(12))
+        .padding(10)
+        .width(Fill)
+        .style(note)
+        .into()
+}
+
+pub fn done_footer<'a, Message: Clone + 'a>(on_done: Message) -> Element<'a, Message> {
+    footer(
+        button(text("Done"))
+            .padding([8, 20])
+            .style(style::primary_button)
+            .on_press(on_done)
+            .into(),
+        None,
+    )
 }
 
 fn generation_limits<'a>(draft: &GenerationLimitDraft) -> Element<'a, DialogMessage> {
@@ -232,7 +411,7 @@ fn generation_limits<'a>(draft: &GenerationLimitDraft) -> Element<'a, DialogMess
         Some(bundle::label("GenerationLimitDialog.cancelButton.text")),
     ));
 
-    dialog_frame(content.into(), 380.0)
+    frame(content, 380.0)
 }
 
 fn custom_names_preview<'a>(
@@ -278,28 +457,41 @@ fn custom_names_preview<'a>(
     ]
     .spacing(SPACE_2);
 
-    dialog_frame(content.into(), 720.0)
+    frame(content, 720.0)
 }
 
 fn dialog_buttons<'a>(
     primary: Element<'a, DialogMessage>,
     cancel_label: Option<&'static str>,
 ) -> Element<'a, DialogMessage> {
+    footer(
+        primary,
+        cancel_label.map(|label| (label, DialogMessage::Close)),
+    )
+}
+
+pub fn footer<'a, Message: Clone + 'a>(
+    primary: Element<'a, Message>,
+    cancel: Option<(&'static str, Message)>,
+) -> Element<'a, Message> {
     let mut buttons = row![space::horizontal()]
         .spacing(SPACE_1)
         .align_y(Alignment::Center);
-    if let Some(label) = cancel_label {
+    if let Some((label, message)) = cancel {
         buttons = buttons.push(
             button(text(label))
                 .padding([8, 16])
                 .style(style::secondary_button)
-                .on_press(DialogMessage::Close),
+                .on_press(message),
         );
     }
     buttons.push(primary).into()
 }
 
-fn dialog_frame<'a>(content: Element<'a, DialogMessage>, width: f32) -> Element<'a, DialogMessage> {
+pub fn frame<'a, Message: 'a>(
+    content: impl Into<Element<'a, Message>>,
+    width: f32,
+) -> Element<'a, Message> {
     container(content)
         .padding(SPACE_3)
         .width(width)

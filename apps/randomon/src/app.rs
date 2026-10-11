@@ -1,3 +1,4 @@
+mod game_update;
 mod view;
 
 use std::collections::HashSet;
@@ -8,19 +9,22 @@ use iced::widget::operation::{self, RelativeOffset};
 use iced::{Subscription, Task, Theme, event, window};
 use randomon_settings::{CustomNames, Settings};
 
+use crate::bdsp::{self, BdspMessage, BdspSession};
 use crate::capabilities::Capabilities;
 use crate::debug::DebugBoot;
 use crate::engine;
+use crate::game_picker;
 use crate::options::spec::Action;
 use crate::options::{self, effective, rules};
 use crate::rom::{self, LoadedRom};
 use crate::section::Section;
-use crate::settings_files::{self, LoadedPreset, ParsedSettings};
+use crate::settings_files::{self, ImportedSettings};
 use crate::support;
 use crate::ui::choices::{self, StarterChoice};
-use crate::ui::dialogs::{Dialog, DialogMessage, GenerationLimitDraft, NamesTab};
+use crate::ui::dialogs::{Dialog, DialogMessage, Feedback, GenerationLimitDraft, NamesTab};
 use crate::ui::options_view::OptionMessage;
 use crate::ui::theme;
+use game_update::GameUpdate;
 
 const SEED_SPACE: u64 = 1 << 48;
 const OPTIONS_SCROLL_ID: &str = "options-scroll";
@@ -41,7 +45,7 @@ struct Randomon {
     window_width: f32,
     section: Section,
     rom: Option<LoadedRom>,
-    game_update: Option<PathBuf>,
+    game_update: Option<GameUpdate>,
     settings: Settings,
     caps: Capabilities,
     generation_override: Option<i32>,
@@ -54,7 +58,7 @@ struct Randomon {
     custom_names: CustomNames,
     status: Option<Status>,
     randomizing: bool,
-    bdsp: Option<crate::bdsp::BdspSession>,
+    bdsp: Option<BdspSession>,
 }
 
 #[derive(Debug, Clone)]
@@ -74,27 +78,24 @@ enum Message {
     Option(OptionMessage),
     Dialog(DialogMessage),
     OpenCustomNames,
-    OpenRom,
-    RomPicked(Option<PathBuf>),
+    OpenGame,
+    GamePicked(Option<PathBuf>),
     FileDropped(PathBuf),
     OpenGameUpdate,
     GameUpdatePicked(Option<PathBuf>),
-    SettingsStringChanged(String),
-    CopySettingsString,
-    LoadQuickSettings,
-    QuickSettingsLoaded(Option<Result<ParsedSettings, String>>),
-    SaveQuickSettings,
-    QuickSettingsSaved(Option<Result<PathBuf, String>>),
-    LoadPreset,
-    PresetLoaded(Option<Result<LoadedPreset, String>>),
+    GameUpdateChecked(PathBuf, Result<Option<String>, String>),
+    AskToRemoveGameUpdate,
+    OpenSettingsSharing,
+    SettingsPasted(Option<String>),
+    SettingsImported(Option<Result<Box<ImportedSettings>, String>>),
+    SettingsExported(Option<Result<PathBuf, String>>),
     SeedChanged(String),
     RollSeed,
     Randomize,
     OutputChosen(Option<PathBuf>),
     Randomized(Result<engine::RandomizedGame, String>),
     OpenLink(&'static str),
-    OpenBdspRomfs,
-    Bdsp(crate::bdsp::BdspMessage),
+    Bdsp(BdspMessage),
 }
 
 impl Randomon {
@@ -126,17 +127,20 @@ impl Randomon {
 
     fn boot() -> (Self, Task<Message>) {
         let mut state = Self::new();
-        state.apply_debug_boot(DebugBoot::from_env());
-        (
-            state,
-            iced::system::theme().map(Message::SystemThemeChanged),
-        )
+        let boot = DebugBoot::from_env();
+        let opens_picker = boot.dialog.as_deref() == Some("open-game");
+        state.apply_debug_boot(boot);
+        let theme = iced::system::theme().map(Message::SystemThemeChanged);
+        if opens_picker {
+            return (state, Task::batch([theme, Task::done(Message::OpenGame)]));
+        }
+        (state, theme)
     }
 
     fn apply_debug_boot(&mut self, boot: DebugBoot) {
         self.generation_override = boot.generation;
         if let Some(path) = boot.rom {
-            self.load_rom(path);
+            self.load_game(path);
         }
         if let Some(section) = boot.section {
             self.section = section;
@@ -144,14 +148,27 @@ impl Randomon {
         if let Some(query) = boot.search {
             self.search = query;
         }
+        if let Some(version) = boot.update_version {
+            self.game_update = Some(GameUpdate::verified(
+                PathBuf::from("update.cia"),
+                Some(version),
+            ));
+        }
         self.dialog = match boot.dialog.as_deref() {
             Some("generations") => Some(Dialog::GenerationLimits(GenerationLimitDraft::open(
                 self.settings.current_restrictions,
                 &self.caps,
             ))),
             Some("names") => Some(Dialog::CustomNames(NamesTab::TrainerNames)),
+            Some("settings") => Some(Dialog::SettingsSharing(None)),
+            Some("remove-update") => Some(Dialog::ConfirmRemoveUpdate),
             _ => None,
         };
+        if boot.dialog.as_deref() == Some("bdsp-settings")
+            && let Some(session) = &mut self.bdsp
+        {
+            let _ = session.update(BdspMessage::OpenSharing);
+        }
     }
 
     fn theme(&self) -> Theme {
@@ -189,52 +206,36 @@ impl Randomon {
                 )));
             }
             Message::Option(message) => self.handle_option(message),
-            Message::Dialog(message) => self.handle_dialog(message),
+            Message::Dialog(message) => return self.handle_dialog(message),
             Message::OpenCustomNames => {
                 self.dialog = Some(Dialog::CustomNames(NamesTab::TrainerNames));
             }
-            Message::OpenRom => return Task::perform(pick_rom(), Message::RomPicked),
-            Message::RomPicked(Some(path)) | Message::FileDropped(path) => self.load_rom(path),
-            Message::RomPicked(None) | Message::GameUpdatePicked(None) => {}
+            Message::OpenGame => {
+                return Task::perform(game_picker::pick_game(), Message::GamePicked);
+            }
+            Message::GamePicked(Some(path)) | Message::FileDropped(path) => self.load_game(path),
+            Message::GamePicked(None) | Message::GameUpdatePicked(None) => {}
             Message::OpenGameUpdate => {
                 return Task::perform(pick_game_update(), Message::GameUpdatePicked);
             }
-            Message::GameUpdatePicked(Some(path)) => self.game_update = Some(path),
-            Message::SettingsStringChanged(value) => self.paste_settings_string(value),
-            Message::LoadQuickSettings => {
-                return Task::perform(
-                    settings_files::load_quick_settings(),
-                    Message::QuickSettingsLoaded,
-                );
+            Message::GameUpdatePicked(Some(path)) => return self.check_game_update(path),
+            Message::GameUpdateChecked(path, result) => self.finish_game_update(path, result),
+            Message::AskToRemoveGameUpdate => self.dialog = Some(Dialog::ConfirmRemoveUpdate),
+            Message::OpenSettingsSharing => self.dialog = Some(Dialog::SettingsSharing(None)),
+            Message::SettingsPasted(contents) => {
+                let outcome = self.paste_settings_string(contents.as_deref().unwrap_or_default());
+                self.finish_sharing(outcome);
             }
-            Message::QuickSettingsLoaded(None)
-            | Message::QuickSettingsSaved(None)
-            | Message::PresetLoaded(None) => {}
-            Message::QuickSettingsLoaded(Some(Ok(parsed))) => {
-                self.apply_settings(parsed.settings, parsed.description);
+            Message::SettingsImported(None) | Message::SettingsExported(None) => {}
+            Message::SettingsImported(Some(result)) => {
+                let outcome = result.map(|imported| self.apply_imported(*imported));
+                self.finish_sharing(outcome);
             }
-            Message::SaveQuickSettings => {
-                return Task::perform(
-                    settings_files::save_quick_settings(self.output_settings()),
-                    Message::QuickSettingsSaved,
-                );
-            }
-            Message::QuickSettingsSaved(Some(Ok(path))) => {
-                self.status = Some(Status::Info(format!("Saved {}", path.display())));
-            }
-            Message::LoadPreset => {
-                return Task::perform(settings_files::load_preset(), Message::PresetLoaded);
-            }
-            Message::PresetLoaded(Some(Ok(preset))) => {
-                self.seed = preset.seed.to_string();
-                let description = format!("Preset loaded. It needs {}.", preset.rom_name);
-                self.apply_settings(preset.settings, description);
-            }
-            Message::QuickSettingsLoaded(Some(Err(error)))
-            | Message::QuickSettingsSaved(Some(Err(error)))
-            | Message::PresetLoaded(Some(Err(error))) => self.status = Some(Status::Error(error)),
-            Message::CopySettingsString => {
-                return iced::clipboard::write(self.settings_string.clone());
+            Message::SettingsExported(Some(result)) => {
+                let outcome = result.map(|path| {
+                    self.status = Some(Status::Info(format!("Saved {}", path.display())));
+                });
+                self.finish_sharing(outcome);
             }
             Message::SeedChanged(value) => {
                 if value
@@ -268,8 +269,10 @@ impl Randomon {
                 });
             }
             Message::OpenLink(url) => support::open_link(url),
-            Message::OpenBdspRomfs => return Task::perform(pick_romfs(), Message::RomPicked),
-            Message::Bdsp(crate::bdsp::BdspMessage::Close) => self.bdsp = None,
+            Message::Bdsp(BdspMessage::Close) => self.bdsp = None,
+            Message::Bdsp(BdspMessage::OpenGame) => {
+                return Task::perform(game_picker::pick_game(), Message::GamePicked);
+            }
             Message::Bdsp(message) => {
                 if let Some(session) = &mut self.bdsp {
                     return session.update(message).map(Message::Bdsp);
@@ -300,7 +303,7 @@ impl Randomon {
         }
     }
 
-    fn handle_dialog(&mut self, message: DialogMessage) {
+    fn handle_dialog(&mut self, message: DialogMessage) -> Task<Message> {
         match (message, &mut self.dialog) {
             (
                 DialogMessage::SetGeneration(generation, allowed),
@@ -320,8 +323,84 @@ impl Randomon {
                 self.settings_changed();
             }
             (DialogMessage::ShowNames(tab), Some(Dialog::CustomNames(current))) => *current = tab,
+            (DialogMessage::CopySettingsString, Some(Dialog::SettingsSharing(feedback))) => {
+                *feedback = Some(Feedback::Done(
+                    "Settings string copied to the clipboard.".to_owned(),
+                ));
+                return iced::clipboard::write(self.settings_string.clone());
+            }
+            (DialogMessage::PasteSettingsString, _) => {
+                return iced::clipboard::read().map(Message::SettingsPasted);
+            }
+            (DialogMessage::ImportSettingsFile, _) => {
+                return Task::perform(settings_files::import_settings_file(), |result| {
+                    Message::SettingsImported(result.map(|imported| imported.map(Box::new)))
+                });
+            }
+            (DialogMessage::ExportSettingsFile, _) => {
+                return Task::perform(
+                    settings_files::export_settings_file(self.output_settings()),
+                    Message::SettingsExported,
+                );
+            }
+            (DialogMessage::RemoveUpdate, _) => {
+                self.game_update = None;
+                self.dialog = None;
+                self.status = Some(Status::Info(
+                    "Update removed. Randomizing now writes a full ROM.".to_owned(),
+                ));
+            }
             (DialogMessage::Close, _) => self.dialog = None,
             _ => {}
+        }
+        Task::none()
+    }
+
+    fn finish_sharing(&mut self, outcome: Result<(), String>) {
+        match outcome {
+            Ok(()) => {
+                if matches!(self.dialog, Some(Dialog::SettingsSharing(_))) {
+                    self.dialog = None;
+                }
+            }
+            Err(error) => match &mut self.dialog {
+                Some(Dialog::SettingsSharing(feedback)) => {
+                    *feedback = Some(Feedback::Problem(error));
+                }
+                _ => self.status = Some(Status::Error(error)),
+            },
+        }
+    }
+
+    fn check_game_update(&mut self, path: PathBuf) -> Task<Message> {
+        let Some(game) = self.rom.as_ref().and_then(|loaded| loaded.engine.clone()) else {
+            self.game_update = Some(GameUpdate::verified(path, None));
+            return Task::none();
+        };
+        self.game_update = Some(GameUpdate::checking(path.clone()));
+        Task::perform(
+            engine::game_update_version(game, path.clone()),
+            move |result| Message::GameUpdateChecked(path.clone(), result),
+        )
+    }
+
+    fn finish_game_update(&mut self, path: PathBuf, result: Result<Option<String>, String>) {
+        if self.game_update.as_ref().map(GameUpdate::path) != Some(path.as_path()) {
+            return;
+        }
+        match result {
+            Ok(version) => {
+                let update = GameUpdate::verified(path, version);
+                self.status = Some(Status::Info(format!(
+                    "{} loaded. Randomizing writes a LayeredFS folder.",
+                    update.label()
+                )));
+                self.game_update = Some(update);
+            }
+            Err(error) => {
+                self.game_update = None;
+                self.status = Some(Status::Error(error));
+            }
         }
     }
 
@@ -343,7 +422,7 @@ impl Randomon {
             return Task::none();
         }
         Task::perform(
-            engine::choose_output(game, loaded.file_name.clone(), self.game_update.clone()),
+            engine::choose_output(game, loaded.file_name.clone(), self.update_path()),
             Message::OutputChosen,
         )
     }
@@ -363,67 +442,94 @@ impl Randomon {
                 self.output_settings(),
                 seed,
                 output,
-                self.game_update.clone(),
+                self.update_path(),
             ),
             Message::Randomized,
         )
     }
 
-    fn load_rom(&mut self, path: PathBuf) {
-        if crate::bdsp::is_bdsp_romfs(&path) {
-            self.bdsp = Some(crate::bdsp::BdspSession::open(path));
+    fn update_path(&self) -> Option<PathBuf> {
+        self.game_update
+            .as_ref()
+            .filter(|update| update.is_ready())
+            .map(|update| update.path().to_path_buf())
+    }
+
+    fn update_is_checking(&self) -> bool {
+        self.game_update
+            .as_ref()
+            .is_some_and(|update| !update.is_ready())
+    }
+
+    fn load_game(&mut self, path: PathBuf) {
+        if rom::Platform::from_path(&path).is_none()
+            && let Some(romfs) = bdsp::romfs_root_containing(&path)
+        {
+            self.dialog = None;
+            self.bdsp = Some(BdspSession::open(romfs));
             return;
         }
         if path.is_dir() {
             self.status = Some(Status::Error(
-                "That folder isn't a Brilliant Diamond or Shining Pearl romfs.".to_owned(),
+                "That folder isn't a ROM or a Brilliant Diamond / Shining Pearl romfs.".to_owned(),
             ));
             return;
         }
         match rom::inspect(path) {
-            Ok(loaded) => {
-                self.status = Some(Status::Info(format!("Loaded {}", loaded.file_name)));
-                self.game_update = None;
-                self.caps = match (&loaded.engine, self.generation_override) {
-                    (Some(game), _) => game.capabilities,
-                    (None, Some(generation)) => Capabilities::for_generation(generation),
-                    (None, None) => Capabilities::provisional(loaded.platform),
-                };
-                self.status = Some(match &loaded.engine {
-                    Some(game) => Status::Info(format!(
-                        "Loaded {} ({}, generation {}, support: {})",
-                        game.rom_name, game.rom_code, game.generation, game.support_level
-                    )),
-                    None => Status::Info(format!(
-                        "Loaded {}. Randomizing this generation isn't ported yet, so its options are a preview.",
-                        loaded.file_name
-                    )),
-                });
-                self.starters = choices::starter_choices(&self.caps);
-                self.rom = Some(loaded);
-                self.limit_restrictions_to_game();
-                self.settings_changed();
-            }
+            Ok(loaded) => self.loaded_rom(loaded),
             Err(message) => self.status = Some(Status::Error(message)),
         }
     }
 
-    fn paste_settings_string(&mut self, value: String) {
+    fn loaded_rom(&mut self, loaded: LoadedRom) {
+        self.bdsp = None;
+        self.game_update = None;
+        self.caps = match (&loaded.engine, self.generation_override) {
+            (Some(game), _) => game.capabilities,
+            (None, Some(generation)) => Capabilities::for_generation(generation),
+            (None, None) => Capabilities::provisional(loaded.platform),
+        };
+        self.status = Some(match &loaded.engine {
+            Some(game) => Status::Info(format!(
+                "Loaded {} ({}, generation {}, support: {})",
+                game.rom_name, game.rom_code, game.generation, game.support_level
+            )),
+            None => Status::Info(format!(
+                "Loaded {}. Randomizing this generation isn't ported yet, so its options are a preview.",
+                loaded.file_name
+            )),
+        });
+        self.starters = choices::starter_choices(&self.caps);
+        self.rom = Some(loaded);
+        self.limit_restrictions_to_game();
+        self.settings_changed();
+    }
+
+    fn paste_settings_string(&mut self, value: &str) -> Result<(), String> {
         if value.trim().is_empty() {
-            self.settings_string = value;
-            self.status = None;
-            return;
+            return Err("The clipboard doesn't contain a settings string.".to_owned());
         }
-        match settings_files::parse_settings_string(&value) {
-            Ok(parsed) => {
-                self.settings_string = value;
+        let parsed = settings_files::parse_settings_string(value)
+            .map_err(|error| format!("That settings string isn't valid: {error}"))?;
+        self.apply_settings(parsed.settings, parsed.description);
+        if self.settings_string.is_empty() {
+            self.settings_string = value.trim().to_owned();
+        }
+        Ok(())
+    }
+
+    fn apply_imported(&mut self, imported: ImportedSettings) {
+        match imported {
+            ImportedSettings::QuickSettings(parsed) => {
                 self.apply_settings(parsed.settings, parsed.description);
             }
-            Err(error) => {
-                self.settings_string = value;
-                self.status = Some(Status::Error(format!(
-                    "That settings string isn't valid: {error}"
-                )));
+            ImportedSettings::Preset(preset) => {
+                self.seed = preset.seed.to_string();
+                let description = format!(
+                    "Preset loaded with seed {}. It needs {}.",
+                    preset.seed, preset.rom_name
+                );
+                self.apply_settings(preset.settings, description);
             }
         }
     }
@@ -495,23 +601,6 @@ fn file_drop_message(
     }
 }
 
-async fn pick_rom() -> Option<PathBuf> {
-    rfd::AsyncFileDialog::new()
-        .set_title("Open a Pokémon ROM")
-        .add_filter("Pokémon ROMs", rom::SUPPORTED_EXTENSIONS)
-        .pick_file()
-        .await
-        .map(|handle| handle.path().to_path_buf())
-}
-
-async fn pick_romfs() -> Option<PathBuf> {
-    rfd::AsyncFileDialog::new()
-        .set_title("Open a Brilliant Diamond or Shining Pearl romfs folder")
-        .pick_folder()
-        .await
-        .map(|handle| handle.path().to_path_buf())
-}
-
 async fn pick_game_update() -> Option<PathBuf> {
     rfd::AsyncFileDialog::new()
         .set_title("Open a game update")
@@ -541,7 +630,7 @@ mod tests {
         let path = directory.join(format!("Test Game.{extension}"));
         std::fs::write(&path, [0u8; 16]).expect("rom file");
         let mut app = Randomon::new();
-        app.load_rom(path);
+        app.load_game(path);
         app
     }
 
@@ -585,7 +674,7 @@ mod tests {
         let text = source.settings_string.clone();
 
         let mut target = app_with_rom("nds");
-        target.paste_settings_string(text.clone());
+        target.paste_settings_string(&text).expect("valid string");
         assert_eq!(
             target.settings.wild_pokemon_mod,
             WildPokemonMod::AreaMapping
@@ -604,7 +693,8 @@ mod tests {
 
         let mut source = app_with_rom("gbc");
         edit(&mut source, Edit::Flag(|s, v| s.race_mode = v, true));
-        app.paste_settings_string(source.settings_string.clone());
+        app.paste_settings_string(&source.settings_string)
+            .expect("valid string");
         assert_eq!(app.settings_string, source.settings_string);
         edit(
             &mut app,
@@ -621,10 +711,72 @@ mod tests {
     fn invalid_pastes_keep_the_previous_settings() {
         let mut app = app_with_rom("gba");
         edit(&mut app, Edit::Flag(|s, v| s.race_mode = v, true));
-        app.paste_settings_string("322garbage".to_owned());
+        let before = app.settings_string.clone();
+        assert!(app.paste_settings_string("322garbage").is_err());
+        assert!(app.paste_settings_string("   ").is_err());
         assert!(app.settings.race_mode);
-        assert!(matches!(app.status, Some(Status::Error(_))));
-        assert_eq!(app.settings_string, "322garbage");
+        assert_eq!(app.settings_string, before);
+    }
+
+    #[test]
+    fn failed_pastes_stay_in_the_sharing_dialog() {
+        let mut app = app_with_rom("gba");
+        app.dialog = Some(Dialog::SettingsSharing(None));
+        let _ = app.update(Message::SettingsPasted(Some("322garbage".to_owned())));
+        assert!(matches!(
+            app.dialog,
+            Some(Dialog::SettingsSharing(Some(Feedback::Problem(_))))
+        ));
+        let valid = app.settings_string.clone();
+        let _ = app.update(Message::SettingsPasted(Some(valid)));
+        assert!(app.dialog.is_none());
+    }
+
+    #[test]
+    fn a_file_inside_a_bdsp_romfs_opens_the_bdsp_panel() {
+        let romfs = std::env::temp_dir().join("randomon-app-tests/bdsp-pick/romfs");
+        let data = romfs.join("Data/StreamingAssets/AssetAssistant");
+        for bundle in [
+            "Dpr/masterdatas",
+            "Pml/personal_masterdatas",
+            "Dpr/scriptableobjects/gamesettings",
+            "Dpr/ev_script",
+            "UnderGround/data/ugdata",
+            "Message/english",
+        ] {
+            let path = data.join(bundle);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("bundle dir");
+            std::fs::write(&path, []).expect("bundle file");
+        }
+        let mut app = app_with_rom("gba");
+        app.load_game(data.join("Dpr/masterdatas"));
+        assert!(app.bdsp.is_some());
+        app.load_game(std::env::temp_dir().join("randomon-app-tests/Test Game.gba"));
+        assert!(app.bdsp.is_none());
+    }
+
+    #[test]
+    fn removing_the_update_asks_first_and_ignores_stale_checks() {
+        let mut app = app_with_rom("3ds");
+        app.game_update = Some(GameUpdate::checking(PathBuf::from("a.cia")));
+        let _ = app.update(Message::GameUpdateChecked(
+            PathBuf::from("b.cia"),
+            Ok(Some("1.4".to_owned())),
+        ));
+        assert!(app.update_is_checking());
+        let _ = app.update(Message::GameUpdateChecked(
+            PathBuf::from("a.cia"),
+            Ok(Some("1.4".to_owned())),
+        ));
+        assert_eq!(app.update_path(), Some(PathBuf::from("a.cia")));
+        let _ = app.update(Message::AskToRemoveGameUpdate);
+        assert_eq!(app.dialog, Some(Dialog::ConfirmRemoveUpdate));
+        let _ = app.update(Message::Dialog(DialogMessage::Close));
+        assert!(app.game_update.is_some());
+        let _ = app.update(Message::AskToRemoveGameUpdate);
+        let _ = app.update(Message::Dialog(DialogMessage::RemoveUpdate));
+        assert!(app.game_update.is_none());
+        assert!(app.dialog.is_none());
     }
 
     #[test]

@@ -2,7 +2,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use iced::widget::{
-    Column, button, column, container, pick_list, row, scrollable, slider, space, text, text_input,
+    Column, button, column, container, pick_list, row, rule, scrollable, slider, space, text,
     toggler,
 };
 use iced::{Alignment, Element, Fill, Length, Task};
@@ -12,12 +12,23 @@ use randomon_bdsp::{
     WILD_MODES, detect_games, looks_like_bdsp_romfs, randomize_romfs,
 };
 
+use crate::ui::action_bar;
+use crate::ui::dialogs::{self, Feedback};
 use crate::ui::style::{self, SPACE_1, SPACE_2, SPACE_3};
 
 const SEED_SPACE: u64 = 1 << 48;
 
-pub fn is_bdsp_romfs(path: &Path) -> bool {
+fn is_bdsp_romfs(path: &Path) -> bool {
     path.is_dir() && looks_like_bdsp_romfs(path)
+}
+
+pub fn romfs_root_containing(path: &Path) -> Option<PathBuf> {
+    let innermost = path.ancestors().find(|ancestor| is_bdsp_romfs(ancestor))?;
+    let root = innermost
+        .parent()
+        .filter(|parent| is_bdsp_romfs(parent))
+        .unwrap_or(innermost);
+    Some(root.to_path_buf())
 }
 
 #[derive(Debug, Clone)]
@@ -30,6 +41,7 @@ pub struct BdspSession {
     layout: OutputLayout,
     status: Option<Result<String, String>>,
     busy: bool,
+    sharing: Option<Option<Feedback>>,
 }
 
 type Flag = fn(&mut BdspSettings) -> &mut bool;
@@ -41,7 +53,12 @@ pub enum BdspMessage {
     Toggle(Flag, bool),
     SetNumber(Number, i32),
     SetMode(Apply, usize),
-    SettingsStringChanged(String),
+    OpenSharing,
+    CloseSharing,
+    CopySettingsString,
+    PasteSettingsString,
+    SettingsPasted(Option<String>),
+    OpenGame,
     SeedChanged(String),
     RollSeed,
     LayoutSelected(LayoutChoice),
@@ -112,6 +129,7 @@ impl BdspSession {
             layout: OutputLayout::default(),
             status: None,
             busy: false,
+            sharing: None,
         }
     }
 
@@ -133,15 +151,19 @@ impl BdspSession {
                 apply(&mut self.settings, index);
                 self.settings_changed();
             }
-            BdspMessage::SettingsStringChanged(value) => {
-                match BdspSettings::from_settings_string(&value) {
-                    Ok(settings) => {
-                        self.settings = settings;
-                        self.status = Some(Ok("Settings string applied.".to_owned()));
-                    }
-                    Err(error) => self.status = Some(Err(error.to_string())),
-                }
-                self.settings_string = value;
+            BdspMessage::OpenSharing => self.sharing = Some(None),
+            BdspMessage::CloseSharing => self.sharing = None,
+            BdspMessage::CopySettingsString => {
+                self.sharing = Some(Some(Feedback::Done(
+                    "Settings string copied to the clipboard.".to_owned(),
+                )));
+                return iced::clipboard::write(self.settings_string.clone());
+            }
+            BdspMessage::PasteSettingsString => {
+                return iced::clipboard::read().map(BdspMessage::SettingsPasted);
+            }
+            BdspMessage::SettingsPasted(contents) => {
+                self.paste_settings_string(contents.as_deref().unwrap_or_default());
             }
             BdspMessage::SeedChanged(value) => {
                 if value.chars().all(|character| character.is_ascii_digit()) {
@@ -157,7 +179,7 @@ impl BdspSession {
                 }
                 return Task::perform(choose_output_folder(), BdspMessage::OutputChosen);
             }
-            BdspMessage::OutputChosen(None) | BdspMessage::Close => {}
+            BdspMessage::OutputChosen(None) | BdspMessage::Close | BdspMessage::OpenGame => {}
             BdspMessage::OutputChosen(Some(output)) => {
                 let Ok(seed) = self.seed.trim().parse::<u64>() else {
                     return Task::none();
@@ -184,7 +206,58 @@ impl BdspSession {
         Task::none()
     }
 
-    pub fn view(&self) -> Element<'_, BdspMessage> {
+    fn paste_settings_string(&mut self, value: &str) {
+        let value = value.trim();
+        if value.is_empty() {
+            self.sharing = Some(Some(Feedback::Problem(
+                "The clipboard doesn't contain a settings string.".to_owned(),
+            )));
+            return;
+        }
+        match BdspSettings::from_settings_string(value) {
+            Ok(settings) => {
+                self.settings = settings;
+                self.settings_changed();
+                self.sharing = None;
+                self.status = Some(Ok("Settings string applied.".to_owned()));
+            }
+            Err(error) => {
+                self.sharing = Some(Some(Feedback::Problem(format!(
+                    "That settings string isn't valid: {error}"
+                ))));
+            }
+        }
+    }
+
+    pub fn dialog(&self) -> Option<Element<'_, BdspMessage>> {
+        let feedback = self.sharing.as_ref()?;
+        let mut content = column![
+            dialogs::heading(
+                "Settings",
+                "Share your BDSP options or keep them for later. The seed isn't part of the settings string."
+            ),
+            dialogs::settings_string_field(
+                &self.settings_string,
+                "",
+                Some(BdspMessage::CopySettingsString),
+            ),
+            rule::horizontal(1),
+            dialogs::sharing_action(
+                "Paste settings string",
+                "Apply a BDSP settings string from your clipboard.",
+                "Paste",
+                Some(BdspMessage::PasteSettingsString),
+            ),
+        ]
+        .spacing(SPACE_2);
+        if let Some(feedback) = feedback {
+            content = content.push(dialogs::feedback_note(feedback));
+        }
+        content = content.push(dialogs::done_footer(BdspMessage::CloseSharing));
+        Some(dialogs::frame(content, 540.0))
+    }
+
+    pub fn view(&self, compact: bool) -> Element<'_, BdspMessage> {
         let cards = column![
             self.header(),
             self.starters_card(),
@@ -196,7 +269,7 @@ impl BdspSession {
         ]
         .spacing(SPACE_2)
         .padding(SPACE_3);
-        column![scrollable(cards).height(Fill), self.action_bar()]
+        column![scrollable(cards).height(Fill), self.action_bar(compact)]
             .height(Fill)
             .width(Fill)
             .into()
@@ -214,11 +287,16 @@ impl BdspSession {
                 ]
                 .spacing(6),
                 space::horizontal(),
+                button(text("Open game"))
+                    .padding([8, 16])
+                    .style(style::primary_button)
+                    .on_press(BdspMessage::OpenGame),
                 button(text("Close"))
                     .padding([8, 16])
                     .style(style::secondary_button)
                     .on_press(BdspMessage::Close),
             ]
+            .spacing(SPACE_1)
             .align_y(Alignment::Center),
         )
         .padding(SPACE_2)
@@ -427,55 +505,51 @@ impl BdspSession {
         )
     }
 
-    fn action_bar(&self) -> Element<'_, BdspMessage> {
+    fn action_bar(&self, compact: bool) -> Element<'_, BdspMessage> {
         let layouts: Vec<LayoutChoice> = OutputLayout::ALL.into_iter().map(LayoutChoice).collect();
-        let status: Element<'_, BdspMessage> = match &self.status {
-            Some(Ok(message)) => text(message.clone()).size(13).into(),
-            Some(Err(message)) => text(message.clone())
-                .size(13)
-                .style(style::accent_text)
-                .into(),
-            None => space().into(),
+        let status: Option<Element<'_, BdspMessage>> = match &self.status {
+            Some(Ok(message)) => Some(
+                text(message.clone())
+                    .size(12)
+                    .style(style::muted_text)
+                    .into(),
+            ),
+            Some(Err(message)) => Some(text(message.clone()).size(12).style(text::danger).into()),
+            None => None,
         };
         let randomize = button(text(if self.busy {
             "Randomizing…"
         } else {
             "Randomize"
         }))
-        .padding([10, 20])
+        .padding([10, 28])
         .style(style::primary_button)
         .on_press_maybe((!self.busy).then_some(BdspMessage::Randomize));
-        container(
-            column![
-                row![
-                    text_input("BDSP settings string", &self.settings_string)
-                        .on_input(BdspMessage::SettingsStringChanged)
-                        .padding(10)
-                        .width(Fill),
-                    text_input("Seed", &self.seed)
-                        .on_input(BdspMessage::SeedChanged)
-                        .padding(10)
-                        .width(Length::Fixed(180.0)),
-                    button(text("🎲"))
-                        .padding([8, 12])
-                        .style(style::secondary_button)
-                        .on_press(BdspMessage::RollSeed),
-                    pick_list(
-                        layouts,
-                        Some(LayoutChoice(self.layout)),
-                        BdspMessage::LayoutSelected
-                    ),
-                    randomize,
-                ]
-                .spacing(SPACE_1)
-                .align_y(Alignment::Center),
-                status,
-            ]
-            .spacing(SPACE_1),
+        let output = row![
+            text("Output").size(13).style(style::muted_text),
+            pick_list(
+                layouts,
+                Some(LayoutChoice(self.layout)),
+                BdspMessage::LayoutSelected
+            )
+            .padding([9, 12]),
+        ]
+        .spacing(SPACE_1)
+        .align_y(Alignment::Center);
+        action_bar::bar(
+            status,
+            vec![
+                action_bar::settings_button(BdspMessage::OpenSharing),
+                output.into(),
+                action_bar::seed_controls(
+                    &self.seed,
+                    BdspMessage::SeedChanged,
+                    BdspMessage::RollSeed,
+                ),
+                randomize.into(),
+            ],
+            compact,
         )
-        .padding(SPACE_2)
-        .style(style::action_bar)
-        .into()
     }
 }
 
@@ -584,4 +658,53 @@ fn randomize_blocking(
         layout.label(),
         output.display()
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_the_romfs_root_from_any_file_inside_it() {
+        let romfs = std::env::temp_dir().join("randomon-bdsp-root-test/0100000011D90000/romfs");
+        let assets = romfs.join("Data/StreamingAssets/AssetAssistant");
+        for bundle in [
+            "Dpr/masterdatas",
+            "Pml/personal_masterdatas",
+            "Dpr/scriptableobjects/gamesettings",
+            "Dpr/ev_script",
+            "UnderGround/data/ugdata",
+            "Message/english",
+        ] {
+            let path = assets.join(bundle);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("bundle dir");
+            std::fs::write(&path, []).expect("bundle file");
+        }
+        assert_eq!(
+            romfs_root_containing(&assets.join("Message/english")),
+            Some(romfs.clone())
+        );
+        assert_eq!(romfs_root_containing(&romfs), Some(romfs.clone()));
+        assert_eq!(
+            romfs_root_containing(&romfs.join("Data")),
+            Some(romfs.clone())
+        );
+        assert_eq!(romfs_root_containing(&std::env::temp_dir()), None);
+    }
+
+    #[test]
+    fn pasting_a_bad_string_keeps_the_dialog_open_with_an_error() {
+        let mut session = BdspSession::open(std::env::temp_dir());
+        let _ = session.update(BdspMessage::OpenSharing);
+        let _ = session.update(BdspMessage::SettingsPasted(Some("nonsense".to_owned())));
+        assert!(matches!(session.sharing, Some(Some(Feedback::Problem(_)))));
+        let valid = BdspSettings {
+            safari: !BdspSettings::default().safari,
+            ..BdspSettings::default()
+        }
+        .to_settings_string();
+        let _ = session.update(BdspMessage::SettingsPasted(Some(valid.clone())));
+        assert!(session.sharing.is_none());
+        assert_eq!(session.settings_string, valid);
+    }
 }

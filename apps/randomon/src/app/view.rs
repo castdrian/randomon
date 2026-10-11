@@ -1,40 +1,52 @@
 use iced::widget::{
     Column, button, column, container, responsive, row, scrollable, space, stack, text, text_input,
 };
-use iced::{Alignment, Element, Fill, Length};
+use iced::{Alignment, Element, Fill};
 
 use super::{Message, OPTIONS_SCROLL_ID, Randomon, Status};
+use crate::bdsp::BdspMessage;
 use crate::options::{self, CardMatch, catalog};
 use crate::rom;
 use crate::section::Section;
 use crate::support;
-use crate::ui::dialogs;
 use crate::ui::options_view::{OptionsView, SEMIBOLD};
 use crate::ui::style::{self, SPACE_1, SPACE_2, SPACE_3};
-
-const COMPACT_ACTION_BAR_WIDTH: f32 = 1180.0;
+use crate::ui::{action_bar, dialogs};
 
 impl Randomon {
     pub(super) fn view(&self) -> Element<'_, Message> {
         let content: Element<'_, Message> = match &self.bdsp {
-            Some(session) => session.view().map(Message::Bdsp),
+            Some(session) => session.view(self.compact()).map(Message::Bdsp),
             None => column![self.rom_card(), self.section_body(), self.action_bar()]
                 .width(Fill)
                 .height(Fill)
                 .into(),
         };
         let base: Element<'_, Message> = row![self.sidebar(), content].height(Fill).into();
-        match &self.dialog {
-            Some(dialog) => stack![
-                base,
-                dialogs::modal(
-                    dialogs::view(dialog, &self.custom_names).map(Message::Dialog),
-                    Message::Dialog(dialogs::DialogMessage::Close),
-                )
-            ]
-            .into(),
+        match self.overlay() {
+            Some(overlay) => stack![base, overlay].into(),
             None => base,
         }
+    }
+
+    fn overlay(&self) -> Option<Element<'_, Message>> {
+        if let Some(dialog) = &self.dialog {
+            let context = dialogs::DialogContext {
+                custom_names: &self.custom_names,
+                settings_string: &self.settings_string,
+                can_export: self.can_save_settings(),
+            };
+            return Some(dialogs::modal(
+                dialogs::view(dialog, context).map(Message::Dialog),
+                Message::Dialog(dialogs::DialogMessage::Close),
+            ));
+        }
+        let session = self.bdsp.as_ref()?;
+        let dialog = session.dialog()?;
+        Some(dialogs::modal(
+            dialog.map(Message::Bdsp),
+            Message::Bdsp(BdspMessage::CloseSharing),
+        ))
     }
 
     fn options_view(&self) -> OptionsView<'_> {
@@ -179,8 +191,8 @@ impl Randomon {
             .spacing(6)
             .into(),
             None => column![
-                text("No ROM loaded").size(18).font(SEMIBOLD),
-                text("Open a ROM or drop one anywhere in the window. Until then, every option is shown so you can prepare settings.")
+                text("No game loaded").size(18).font(SEMIBOLD),
+                text("Open a ROM or a Brilliant Diamond / Shining Pearl romfs folder, or drop either anywhere in the window. Until then, every option is shown so you can prepare settings.")
                     .size(13)
                     .style(style::muted_text),
             ]
@@ -188,34 +200,20 @@ impl Randomon {
             .into(),
         };
 
-        let mut actions = row![
-            button(text("Open ROM"))
-                .padding([8, 16])
-                .style(style::primary_button)
-                .on_press(Message::OpenRom),
-            button(text("Open BDSP romfs"))
-                .padding([8, 16])
-                .style(style::secondary_button)
-                .on_press(Message::OpenBdspRomfs)
-        ]
-        .spacing(SPACE_1)
-        .align_y(Alignment::Center);
+        let mut actions = row![].spacing(SPACE_1).align_y(Alignment::Center);
         if self
             .rom
             .as_ref()
             .is_some_and(|loaded| loaded.platform.supports_game_updates())
         {
-            let label = match &self.game_update {
-                Some(_) => "Update loaded",
-                None => "Load update (.cia)",
-            };
-            actions = actions.push(
-                button(text(label))
-                    .padding([8, 16])
-                    .style(style::secondary_button)
-                    .on_press(Message::OpenGameUpdate),
-            );
+            actions = actions.push(self.game_update_control());
         }
+        actions = actions.push(
+            button(text("Open game"))
+                .padding([8, 16])
+                .style(style::primary_button)
+                .on_press(Message::OpenGame),
+        );
 
         container(
             container(
@@ -228,6 +226,28 @@ impl Randomon {
             .style(style::card),
         )
         .padding(iced::Padding::from([SPACE_2, SPACE_3]).bottom(SPACE_1))
+        .into()
+    }
+
+    fn game_update_control(&self) -> Element<'_, Message> {
+        let Some(update) = &self.game_update else {
+            return button(text("Load update (.cia)"))
+                .padding([8, 16])
+                .style(style::secondary_button)
+                .on_press(Message::OpenGameUpdate)
+                .into();
+        };
+        let remove = button(text("✕").size(12))
+            .padding([2, 7])
+            .style(style::chip_remove_button)
+            .on_press_maybe(update.is_ready().then_some(Message::AskToRemoveGameUpdate));
+        container(
+            row![text(update.label()).size(13).font(SEMIBOLD), remove]
+                .spacing(6)
+                .align_y(Alignment::Center),
+        )
+        .padding(iced::Padding::from([5, 6]).left(12))
+        .style(style::update_chip)
         .into()
     }
 
@@ -370,87 +390,36 @@ impl Randomon {
     }
 
     fn action_bar(&self) -> Element<'_, Message> {
-        let settings = row![
-            text_input(
-                "Load a ROM or paste a settings string",
-                &self.settings_string
-            )
-            .on_input(Message::SettingsStringChanged)
-            .padding(10)
-            .width(Length::FillPortion(3)),
-            button(text("Copy"))
-                .padding([10, 14])
-                .style(style::secondary_button)
-                .on_press_maybe(
-                    (!self.settings_string.is_empty()).then_some(Message::CopySettingsString)
-                ),
-            secondary_action("Load", Some(Message::LoadQuickSettings)),
-            secondary_action(
-                "Save",
-                self.can_save_settings()
-                    .then_some(Message::SaveQuickSettings),
-            ),
-            secondary_action("Preset", Some(Message::LoadPreset)),
-        ]
-        .spacing(SPACE_1)
-        .align_y(Alignment::Center);
-
-        let seed = row![
-            text_input("Seed", &self.seed)
-                .on_input(Message::SeedChanged)
-                .padding(10)
-                .width(Length::Fixed(180.0)),
-            button(text("🎲"))
-                .padding([10, 14])
-                .style(style::secondary_button)
-                .on_press(Message::RollSeed),
-        ]
-        .spacing(SPACE_1)
-        .align_y(Alignment::Center);
-
-        let randomize = button(text("Randomize").size(16))
-            .padding([10, 28])
-            .style(style::primary_button)
-            .on_press_maybe(
-                (self.rom.is_some() && !self.randomizing).then_some(Message::Randomize),
-            );
-
-        let status: Element<'_, Message> = match &self.status {
-            Some(Status::Info(message)) => text(message).size(12).style(style::muted_text).into(),
-            Some(Status::Error(message)) => text(message).size(12).style(text::danger).into(),
-            None => space().into(),
-        };
-
-        let controls: Element<'_, Message> = if self.window_width < COMPACT_ACTION_BAR_WIDTH {
-            column![
-                settings,
-                row![seed, space::horizontal(), randomize]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
-            ]
-            .spacing(SPACE_1)
-            .into()
+        let can_randomize = self.rom.is_some() && !self.randomizing && !self.update_is_checking();
+        let randomize = button(text(if self.randomizing {
+            "Randomizing…"
         } else {
-            row![settings, seed, randomize]
-                .spacing(12)
-                .align_y(Alignment::Center)
-                .into()
-        };
+            "Randomize"
+        }))
+        .padding([10, 28])
+        .style(style::primary_button)
+        .on_press_maybe(can_randomize.then_some(Message::Randomize));
 
-        container(column![controls, status].spacing(SPACE_1))
-            .padding([SPACE_2, SPACE_3])
-            .width(Fill)
-            .style(style::action_bar)
-            .into()
+        let status: Option<Element<'_, Message>> =
+            self.status.as_ref().map(|status| match status {
+                Status::Info(message) => text(message).size(12).style(style::muted_text).into(),
+                Status::Error(message) => text(message).size(12).style(text::danger).into(),
+            });
+
+        action_bar::bar(
+            status,
+            vec![
+                action_bar::settings_button(Message::OpenSettingsSharing),
+                action_bar::seed_controls(&self.seed, Message::SeedChanged, Message::RollSeed),
+                randomize.into(),
+            ],
+            self.compact(),
+        )
     }
-}
 
-fn secondary_action(label: &'static str, message: Option<Message>) -> Element<'static, Message> {
-    button(text(label))
-        .padding([10, 14])
-        .style(style::secondary_button)
-        .on_press_maybe(message)
-        .into()
+    fn compact(&self) -> bool {
+        self.window_width < action_bar::COMPACT_WIDTH
+    }
 }
 
 fn link_button(label: &'static str, url: &'static str) -> Element<'static, Message> {

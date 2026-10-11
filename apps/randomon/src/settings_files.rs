@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use randomon_settings::{Preset, Settings, release_name};
 
@@ -36,14 +36,32 @@ fn describe(settings: &Settings) -> String {
     format!("Settings for {rom}")
 }
 
-pub async fn load_quick_settings() -> Option<Result<ParsedSettings, String>> {
+#[derive(Debug, Clone)]
+pub enum ImportedSettings {
+    QuickSettings(ParsedSettings),
+    Preset(LoadedPreset),
+}
+
+pub async fn import_settings_file() -> Option<Result<ImportedSettings, String>> {
     let handle = rfd::AsyncFileDialog::new()
-        .set_title("Load quick settings")
-        .add_filter("Randomization quick settings", &["rnqs"])
+        .set_title("Import settings or a preset")
+        .add_filter("Settings files and presets", &["rnqs", "rndp"])
         .pick_file()
         .await?;
     let bytes = handle.read().await;
-    Some(quick_settings_from_bytes(&bytes))
+    Some(imported_from_bytes(handle.path(), &bytes))
+}
+
+fn imported_from_bytes(path: &Path, bytes: &[u8]) -> Result<ImportedSettings, String> {
+    let is_preset = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("rndp"));
+    if is_preset {
+        preset_from_bytes(bytes).map(ImportedSettings::Preset)
+    } else {
+        quick_settings_from_bytes(bytes).map(ImportedSettings::QuickSettings)
+    }
 }
 
 fn quick_settings_from_bytes(bytes: &[u8]) -> Result<ParsedSettings, String> {
@@ -59,9 +77,9 @@ fn quick_settings_from_bytes(bytes: &[u8]) -> Result<ParsedSettings, String> {
     })
 }
 
-pub async fn save_quick_settings(settings: Settings) -> Option<Result<PathBuf, String>> {
+pub async fn export_settings_file(settings: Settings) -> Option<Result<PathBuf, String>> {
     let handle = rfd::AsyncFileDialog::new()
-        .set_title("Save quick settings")
+        .set_title("Export settings")
         .add_filter("Randomization quick settings", &["rnqs"])
         .set_file_name("settings.rnqs")
         .save_file()
@@ -73,16 +91,6 @@ fn write_quick_settings(settings: &Settings, path: PathBuf) -> Result<PathBuf, S
     let bytes = settings.write_rnqs().map_err(|error| error.to_string())?;
     std::fs::write(&path, bytes).map_err(|error| error.to_string())?;
     Ok(path)
-}
-
-pub async fn load_preset() -> Option<Result<LoadedPreset, String>> {
-    let handle = rfd::AsyncFileDialog::new()
-        .set_title("Load a preset")
-        .add_filter("Pokemon Randomizer preset", &["rndp"])
-        .pick_file()
-        .await?;
-    let bytes = handle.read().await;
-    Some(preset_from_bytes(&bytes))
 }
 
 fn preset_from_bytes(bytes: &[u8]) -> Result<LoadedPreset, String> {
@@ -150,5 +158,22 @@ mod tests {
         assert_eq!(preset.seed, 1234);
         assert_eq!(preset.rom_name, "Yellow (U)");
         assert_eq!(encoded(&preset.settings), encoded(&yellow_settings()));
+    }
+
+    #[test]
+    fn imports_pick_the_format_from_the_extension() {
+        let config = yellow_settings().to_settings_string().expect("encodes");
+        let preset_bytes = Preset::with_default_custom_names(99, config)
+            .to_bytes()
+            .expect("writes");
+        let quick_bytes = yellow_settings().write_rnqs().expect("writes");
+        assert!(matches!(
+            imported_from_bytes(Path::new("shared.RNDP"), &preset_bytes),
+            Ok(ImportedSettings::Preset(preset)) if preset.seed == 99
+        ));
+        assert!(matches!(
+            imported_from_bytes(Path::new("shared.rnqs"), &quick_bytes),
+            Ok(ImportedSettings::QuickSettings(_))
+        ));
     }
 }
