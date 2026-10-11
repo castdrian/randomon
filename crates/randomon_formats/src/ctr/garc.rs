@@ -18,13 +18,13 @@ pub enum Decompression {
     Selected(Vec<bool>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct GarcHeader {
     version: i32,
     content_pad_to_nearest: i32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GarcArchive {
     version: u8,
     header: GarcHeader,

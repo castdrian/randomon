@@ -332,7 +332,7 @@ impl Randomon {
             return Task::none();
         }
         Task::perform(
-            engine::choose_output(game, loaded.file_name.clone()),
+            engine::choose_output(game, loaded.file_name.clone(), self.game_update.clone()),
             Message::OutputChosen,
         )
     }
@@ -347,7 +347,13 @@ impl Randomon {
         self.randomizing = true;
         self.status = Some(Status::Info("Randomizing…".to_owned()));
         Task::perform(
-            engine::randomize(game, self.output_settings(), seed, output),
+            engine::randomize(
+                game,
+                self.output_settings(),
+                seed,
+                output,
+                self.game_update.clone(),
+            ),
             Message::Randomized,
         )
     }
