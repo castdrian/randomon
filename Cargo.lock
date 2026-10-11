@@ -3345,6 +3345,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "randomon_gen3"
+version = "0.1.0"
+dependencies = [
+ "randomon_core",
+ "randomon_data",
+ "randomon_formats",
+ "randomon_gb",
+ "randomon_gen3",
+ "randomon_java",
+ "randomon_log",
+ "randomon_settings",
+]
+
+[[package]]
 name = "randomon_gen5"
 version = "0.1.0"
 dependencies = [
