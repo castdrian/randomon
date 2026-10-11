@@ -3312,6 +3312,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "randomon_fuzz"
+version = "0.1.0"
+dependencies = [
+ "randomon_core",
+ "randomon_data",
+ "randomon_gen1",
+ "randomon_gen2",
+ "randomon_gen5",
+ "randomon_gen6",
+ "randomon_gen7",
+ "randomon_java",
+ "randomon_settings",
+]
+
+[[package]]
 name = "randomon_gb"
 version = "0.1.0"
 dependencies = [
