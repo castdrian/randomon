@@ -442,10 +442,19 @@ fn run_java(
     if let Some(update) = update {
         command.arg(update);
     }
-    let console = fs::File::create(jobs_dir.join(format!("{}.out", job.id))).expect("console file");
-    command.stdout(console);
-    let status = command.status().expect("java runs");
-    assert!(status.success(), "Java parity runner failed for {}", job.id);
+    for _ in 0..2 {
+        let console =
+            fs::File::create(jobs_dir.join(format!("{}.out", job.id))).expect("console file");
+        command.stdout(console);
+        if command.status().expect("java runs").success() {
+            return;
+        }
+    }
+    fs::write(
+        java_out.join(format!("{}.err", job.id)),
+        "the Java process itself exited abnormally",
+    )
+    .expect("error file");
 }
 
 fn collect_files(root: &Path, directory: &Path, files: &mut BTreeMap<String, PathBuf>) {
