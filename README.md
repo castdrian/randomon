@@ -3,7 +3,7 @@
 [![Release](https://github.com/castdrian/randomon/actions/workflows/release.yml/badge.svg)](https://github.com/castdrian/randomon/actions/workflows/release.yml)
 [![CI](https://github.com/castdrian/randomon/actions/workflows/ci.yml/badge.svg)](https://github.com/castdrian/randomon/actions/workflows/ci.yml)
 
-A fast, native Pokémon randomizer for macOS, Windows and Linux. Reads Universal Pokemon Randomizer ZX settings and seeds, and randomizes Brilliant Diamond and Shining Pearl.
+A fast, native Pokémon randomizer for macOS, Windows and Linux
 
 <p align="center"><img src="assets/screenshots/app.png" alt="Randomon with Pokémon Yellow loaded, showing the Pokémon Traits options" width="100%"></p>
 
