@@ -6,6 +6,7 @@ use randomon_core::{
 };
 use randomon_gen1::Gen1Factory;
 use randomon_gen2::Gen2Factory;
+use randomon_gen4::Gen4Factory;
 use randomon_gen5::Gen5Factory;
 use randomon_gen6::Gen6Factory;
 use randomon_gen7::Gen7Factory;
@@ -47,6 +48,7 @@ pub fn registry() -> &'static HandlerRegistry {
         HandlerRegistry::new()
             .with(Gen1Factory)
             .with(Gen2Factory)
+            .with(Gen4Factory)
             .with(Gen5Factory)
             .with(Gen6Factory)
             .with(Gen7Factory)

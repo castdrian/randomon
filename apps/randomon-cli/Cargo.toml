@@ -15,6 +15,7 @@ clap = { version = "4.5", features = ["derive"] }
 randomon_core.workspace = true
 randomon_gen1.workspace = true
 randomon_gen2.workspace = true
+randomon_gen4.workspace = true
 randomon_gen5.workspace = true
 randomon_gen6.workspace = true
 randomon_gen7.workspace = true
