@@ -432,13 +432,7 @@ pub fn randomize_trainer_pokes<H: RomHandler + ?Sized>(
         scrambled.sort_by_key(|&position| std::cmp::Reverse(is_elite(position)));
         illegal_evo_chains = force_fully_evolved;
         if rival_carries_starter {
-            let starters = handler.get_starters();
-            if starters.len() < 3 {
-                return Err(RandomizationError::IndexOutOfBounds(
-                    "getStarters().subList(0, 3)",
-                ));
-            }
-            let starters = starters[..3].to_vec();
+            let starters: Vec<PokemonId> = handler.get_starters().into_iter().take(3).collect();
             let has_rival_final_battle = handler.has_rival_final_battle();
             for starter in starters {
                 banned_from_unique.push(starter);
@@ -838,7 +832,10 @@ fn rival_carries_starter_update<H: RomHandler + ?Sized>(
     }
     let starters = handler.get_starters();
     if handler.is_yellow() {
-        let mut rival_starter = starters[1];
+        let Some(&rival_starter) = starters.get(1).or_else(|| starters.first()) else {
+            return Ok(());
+        };
+        let mut rival_starter = rival_starter;
         let times_evolves = num_evolutions(&handler.core().data, rival_starter, 2);
         let ability_slot = 0;
         if times_evolves == 0 {
@@ -927,8 +924,12 @@ fn rival_carries_starter_update<H: RomHandler + ?Sized>(
         return Ok(());
     }
     for i in 0..3 {
-        let starter_to_use = ((i + pokemon_offset) % 3) as usize;
-        let mut this_starter = starters[starter_to_use];
+        let Some(&this_starter) =
+            starters.get(((i + pokemon_offset) % 3) as usize % starters.len().max(1))
+        else {
+            return Ok(());
+        };
+        let mut this_starter = this_starter;
         let times_evolves = num_evolutions(&handler.core().data, this_starter, 2);
         let mut ability_slot = random_ability_slot(handler, this_starter);
         while ability_slot == 3 {

@@ -1,18 +1,19 @@
 use randomon_data::constants::{abilities, global};
 use randomon_data::move_synergy as synergy;
 use randomon_data::{
-    GameData, MoveCategory, MoveId, MoveStatChange, StatChangeMoveType, StatChangeType, StatusType,
-    TrainerPokemon,
+    GameData, MoveCategory, MoveId, MoveStatChange, StatChangeMoveType, StatChangeType, StatLayout,
+    StatusType, TrainerPokemon,
 };
 use randomon_java::JavaRng;
 use randomon_settings::{EvolutionsMod, Settings};
 
+use crate::engine::evolutions::{earliest_pre_evolution, pre_evolution_chain};
 use crate::engine::util::{distinct, pick, remove_all, remove_first};
 use crate::error::{RandomizationError, Result};
 use crate::handler::RomHandler;
 use crate::state::TrainerMovesetCaches;
 
-const MAX_ADDITIONAL_MOVES: i64 = 50_000_000;
+const MAX_ADDITIONAL_MOVES: i64 = 10_000;
 
 fn ensure_caches<H: RomHandler + ?Sized>(handler: &mut H) {
     let mut caches = std::mem::take(&mut handler.core_mut().engine.moveset_caches);
@@ -116,9 +117,8 @@ pub fn move_selection_pool_at_level<H: RomHandler + ?Sized>(
     }
     pool = distinct(&pool);
     if !cyclic_evolutions {
-        let mut pre_evolution = if alt_formes_differ { forme } else { tp.pokemon };
-        while let Some(earlier) = data.first_pre_evolution(pre_evolution) {
-            pre_evolution = earlier;
+        let start = if alt_formes_differ { forme } else { tp.pokemon };
+        for pre_evolution in pre_evolution_chain(data, start) {
             let number = data.pk(pre_evolution).number;
             let moves = level_up
                 .get(&number)
@@ -169,10 +169,8 @@ pub fn move_selection_pool_at_level<H: RomHandler + ?Sized>(
         )?;
     }
     if !cyclic_evolutions {
-        let mut first_evolution = if alt_formes_differ { forme } else { tp.pokemon };
-        while let Some(earlier) = data.first_pre_evolution(first_evolution) {
-            first_evolution = earlier;
-        }
+        let first_evolution =
+            earliest_pre_evolution(data, if alt_formes_differ { forme } else { tp.pokemon });
         let egg_moves = caches
             .egg_moves
             .as_ref()
@@ -338,7 +336,7 @@ pub fn pick_trainer_movesets<H: RomHandler + ?Sized>(
                 trainer.pokemon[slot] = tp;
                 continue;
             }
-            let mut atk_spatk_ratio = f64::from(pk.attack) / f64::from(pk.spatk);
+            let mut atk_spatk_ratio = attack_to_special_attack(pk);
             match ability {
                 abilities::HUGE_POWER | abilities::PURE_POWER => atk_spatk_ratio *= 2.0,
                 abilities::HUSTLE | abilities::GORILLA_TACTICS => atk_spatk_ratio *= 1.5,
@@ -388,18 +386,21 @@ pub fn pick_trainer_movesets<H: RomHandler + ?Sized>(
     handler.set_trainers(&trainers, false)
 }
 
+fn attack_to_special_attack(pokemon: &randomon_data::Pokemon) -> f64 {
+    let special_attack = match pokemon.layout {
+        StatLayout::Gen1 => pokemon.special,
+        StatLayout::Standard => pokemon.spatk,
+    };
+    f64::from(pokemon.attack.max(1)) / f64::from(special_attack.max(1))
+}
+
 fn add_random_copies(
     target: &mut Vec<MoveId>,
     source: &[MoveId],
     additional: i64,
     random: &mut impl JavaRng,
 ) -> Result<()> {
-    if additional > MAX_ADDITIONAL_MOVES {
-        return Err(RandomizationError::randomization(
-            "java.lang.OutOfMemoryError: Java heap space",
-        ));
-    }
-    for _ in 0..additional.max(0) {
+    for _ in 0..additional.clamp(0, MAX_ADDITIONAL_MOVES) {
         target.push(pick(random, source)?);
     }
     Ok(())

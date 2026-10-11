@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use randomon_data::{EvolutionId, GameData, PokemonId};
 
-use crate::error::{RandomizationError, Result};
+use crate::error::Result;
 use crate::handler::RomHandler;
 
 pub fn basic_pokemon(data: &GameData, all: &[Option<PokemonId>]) -> BTreeSet<PokemonId> {
@@ -70,13 +70,41 @@ pub struct CopyUpActions<'a, H: ?Sized, C> {
     pub copy_split_evos: bool,
 }
 
-const CHAIN_LIMIT: usize = 100_000;
+fn is_flagged<H: RomHandler + ?Sized>(handler: &H, pokemon: PokemonId) -> bool {
+    handler.core().data.pk(pokemon).temporary_flag
+}
 
-fn first_evolution_to(data: &GameData, pokemon: PokemonId) -> Result<EvolutionId> {
-    data.evolutions_to(pokemon)
-        .first()
-        .copied()
-        .ok_or(RandomizationError::IndexOutOfBounds("evolutionsTo.get(0)"))
+fn flag<H: RomHandler + ?Sized>(handler: &mut H, pokemon: PokemonId) {
+    handler.core_mut().data.pk_mut(pokemon).temporary_flag = true;
+}
+
+fn chain_to_flagged_ancestor<H: RomHandler + ?Sized, C>(
+    handler: &mut H,
+    context: &mut C,
+    base: &mut BaseAction<'_, H, C>,
+    pokemon: PokemonId,
+) -> Result<Vec<EvolutionId>> {
+    let mut chain: Vec<EvolutionId> = Vec::new();
+    let mut on_path = BTreeSet::from([pokemon]);
+    let mut current = pokemon;
+    loop {
+        let Some(evo) = handler.core().data.evolutions_to(current).first().copied() else {
+            base(handler, context, current)?;
+            flag(handler, current);
+            return Ok(chain);
+        };
+        let from = handler.core().data.evo(evo).from;
+        chain.push(evo);
+        if is_flagged(handler, from) {
+            return Ok(chain);
+        }
+        if !on_path.insert(from) {
+            base(handler, context, from)?;
+            flag(handler, from);
+            return Ok(chain);
+        }
+        current = from;
+    }
 }
 
 pub fn copy_up_evolutions_helper<H: RomHandler + ?Sized, C>(
@@ -110,50 +138,30 @@ pub fn copy_up_evolutions_helper<H: RomHandler + ?Sized, C>(
         }
     }
     for &pokemon in all.iter().flatten() {
-        if handler.core().data.pk(pokemon).temporary_flag {
+        if is_flagged(handler, pokemon) {
             continue;
         }
-        let mut stack: Vec<EvolutionId> = Vec::new();
-        let mut evo = first_evolution_to(&handler.core().data, pokemon)?;
-        loop {
-            let data = &handler.core().data;
-            let from = data.evo(evo).from;
-            if data.pk(from).temporary_flag {
-                break;
-            }
-            stack.push(evo);
-            if stack.len() > CHAIN_LIMIT {
-                return Err(RandomizationError::randomization(
-                    "evolution chain does not reach a base Pokemon",
-                ));
-            }
-            evo = first_evolution_to(data, from)?;
-        }
-        let (from, to) = {
-            let evolution = handler.core().data.evo(evo);
-            (evolution.from, evolution.to)
-        };
-        let to_is_final = !middles.contains(&to);
-        match split.as_mut() {
-            Some(split_action) if copy_split_evos && splits.contains(&to) => {
-                split_action(handler, context, from, to, to_is_final)?
-            }
-            _ => evolved(handler, context, from, to, to_is_final)?,
-        }
-        handler.core_mut().data.pk_mut(to).temporary_flag = true;
-        while let Some(evo) = stack.pop() {
+        let mut chain = chain_to_flagged_ancestor(handler, context, base, pokemon)?;
+        let mut first_step = true;
+        while let Some(evo) = chain.pop() {
             let (from, to) = {
                 let evolution = handler.core().data.evo(evo);
                 (evolution.from, evolution.to)
             };
+            if is_flagged(handler, to) {
+                first_step = false;
+                continue;
+            }
             let to_is_final = !middles.contains(&to);
+            let split_target = if first_step { to } else { pokemon };
+            first_step = false;
             match split.as_mut() {
-                Some(split_action) if copy_split_evos && splits.contains(&pokemon) => {
+                Some(split_action) if copy_split_evos && splits.contains(&split_target) => {
                     split_action(handler, context, from, to, to_is_final)?
                 }
                 _ => evolved(handler, context, from, to, to_is_final)?,
             }
-            handler.core_mut().data.pk_mut(to).temporary_flag = true;
+            flag(handler, to);
         }
     }
     Ok(())

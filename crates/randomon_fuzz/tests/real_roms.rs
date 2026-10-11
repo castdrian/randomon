@@ -45,7 +45,12 @@ fn fuzz_black2() {
 
 #[test]
 fn fuzz_alpha_sapphire() {
-    fuzz_game("RANDOMON_FUZZ_ORAS", Some("RANDOMON_FUZZ_ORAS_UPDATE"), 30, 3);
+    fuzz_game(
+        "RANDOMON_FUZZ_ORAS",
+        Some("RANDOMON_FUZZ_ORAS_UPDATE"),
+        30,
+        3,
+    );
 }
 
 #[test]

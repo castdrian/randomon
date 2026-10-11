@@ -84,6 +84,12 @@ pub fn tweak_for_rom(settings: &mut Settings, handler: &dyn RomHandler) -> Tweak
     if !handler.supports_four_starting_moves() {
         settings.start_with_guaranteed_moves = false;
     }
+    if traits.generation < 7 {
+        settings.evolution_moves_for_all = false;
+    }
+    if traits.is_gen1 {
+        settings.better_trainer_movesets = false;
+    }
     if traits.is_gen1 || traits.is_gen2 {
         settings.trainers_block_early_wonder_guard = false;
     }
@@ -93,6 +99,15 @@ pub fn tweak_for_rom(settings: &mut Settings, handler: &dyn RomHandler) -> Tweak
     if traits.is_gen1 {
         settings.randomize_wild_pokemon_held_items = false;
         settings.ban_bad_random_wild_pokemon_held_items = false;
+        settings.randomize_held_items_for_boss_trainer_pokemon = false;
+        settings.randomize_held_items_for_important_trainer_pokemon = false;
+        settings.randomize_held_items_for_regular_trainer_pokemon = false;
+        settings.consumable_items_only_for_trainer_pokemon = false;
+        settings.sensible_items_only_for_trainer_pokemon = false;
+        settings.highest_level_only_gets_items_for_trainer_pokemon = false;
+    }
+    if traits.is_gen1 || traits.is_gen2 {
+        settings.double_battle_mode = false;
     }
     if !handler.can_change_static_pokemon() {
         settings.static_pokemon_mod = StaticPokemonMod::Unchanged;

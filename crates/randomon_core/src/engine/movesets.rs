@@ -231,11 +231,17 @@ fn pick_unlearnt_move<H: RomHandler + ?Sized>(
     random: &mut impl JavaRng,
 ) -> Result<i32> {
     let data = &handler.core().data;
-    let mut chosen = data.mv(pick(random, pick_list)?).number;
-    while learnt.contains(&chosen) {
-        chosen = data.mv(pick(random, pick_list)?).number;
-    }
-    Ok(chosen)
+    let unlearnt: Vec<MoveId> = pick_list
+        .iter()
+        .copied()
+        .filter(|&id| !learnt.contains(&data.mv(id).number))
+        .collect();
+    let candidates = if unlearnt.is_empty() {
+        pick_list
+    } else {
+        &unlearnt
+    };
+    Ok(data.mv(pick(random, candidates)?).number)
 }
 
 pub fn randomize_moves_learnt<H: RomHandler + ?Sized>(
@@ -270,6 +276,10 @@ pub fn randomize_moves_learnt<H: RomHandler + ?Sized>(
             .pk(pokemon)
             .attack_special_attack_ratio();
         let mut moves = movesets.remove(&number).unwrap_or_default();
+        if moves.is_empty() {
+            movesets.insert(number, moves);
+            continue;
+        }
         if force_starting_moves {
             let level_one_count = moves.iter().filter(|learnt| learnt.level == 1).count() as i32;
             for _ in level_one_count..force_starting_count {
