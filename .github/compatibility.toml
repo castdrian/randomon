@@ -11,12 +11,12 @@ status = "verified"
 [[rows]]
 label = "Generation 3 · Game Boy Advance"
 value = "Ruby, Sapphire, Emerald, FireRed, LeafGreen"
-status = "unsupported"
+status = "verified"
 
 [[rows]]
 label = "Generation 4 · Nintendo DS"
 value = "Diamond, Pearl, Platinum, HeartGold, SoulSilver"
-status = "unsupported"
+status = "verified"
 
 [[rows]]
 label = "Generation 5 · Nintendo DS"
@@ -36,7 +36,7 @@ status = "verified"
 [[rows]]
 label = "Generation 8 · Nintendo Switch"
 value = "Brilliant Diamond, Shining Pearl"
-status = "partial"
+status = "verified"
 
 [[legend]]
 status = "verified"
