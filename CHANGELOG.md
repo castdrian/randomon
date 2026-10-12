@@ -1,3 +1,9 @@
+## [1.2.1](https://github.com/castdrian/randomon/compare/v1.2.0...v1.2.1) (2026-10-12)
+
+### Bug Fixes
+
+* **cli:** only warn about unavailable starters when custom starters were chosen ([1890bbb](https://github.com/castdrian/randomon/commit/1890bbb4bb152214e2d3ac10c39efe8ba3dc276b))
+
 ## [1.2.0](https://github.com/castdrian/randomon/compare/v1.1.1...v1.2.0) (2026-10-12)
 
 ### Features
