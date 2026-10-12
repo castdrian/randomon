@@ -26,15 +26,15 @@ fn the_mod_folder_is_the_top_level_folder_each_layout_writes() {
         PathBuf::from("/out/Output/atmosphere")
     );
     assert_eq!(
-        target(OutputLayout::Ryujinx, &one).mod_folder(),
+        target(OutputLayout::Ryubing, &one).mod_folder(),
         PathBuf::from("/out/Output/mods")
     );
     assert_eq!(
-        target(OutputLayout::Yuzu, &one).mod_folder(),
+        target(OutputLayout::Eden, &one).mod_folder(),
         PathBuf::from("/out/Output/0100000011D90000")
     );
     assert_eq!(
-        target(OutputLayout::Yuzu, &Game::ALL).mod_folder(),
+        target(OutputLayout::Eden, &Game::ALL).mod_folder(),
         PathBuf::from("/out/Output")
     );
     assert_eq!(

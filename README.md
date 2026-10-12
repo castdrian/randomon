@@ -17,7 +17,7 @@ A fast, native Pokémon randomizer for macOS, Windows and Linux
 
 - Every Universal Pokemon Randomizer ZX option, in a clean native interface with search
 - Same settings strings, `.rnqs` quick settings and `.rndp` presets as UPR ZX, with matching results for the same seed
-- Brilliant Diamond and Shining Pearl, with reproducible seeds and mod folders for Atmosphere, Yuzu and Ryujinx
+- Brilliant Diamond and Shining Pearl, with reproducible seeds and mod folders for Atmosphere, Eden and Ryubing
 - 3DS game updates and LayeredFS output
 - A command-line tool that accepts UPR ZX's flags, plus `--seed` and `--settings-string`. It ships inside every download: `randomon.app/Contents/MacOS/randomon-cli` on macOS, `randomon-cli.exe` next to the app on Windows, and the AppImage itself on Linux (run it with arguments)
 

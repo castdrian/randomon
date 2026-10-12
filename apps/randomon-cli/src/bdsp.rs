@@ -21,7 +21,7 @@ fn layout_from(text: Option<&str>) -> Result<OutputLayout, String> {
     match text {
         None => Ok(OutputLayout::default()),
         Some(text) => OutputLayout::parse(text).ok_or_else(|| {
-            format!("Unknown layout {text:?}; use atmosphere, yuzu, ryujinx or emulator.")
+            format!("Unknown layout {text:?}; use atmosphere, eden, ryubing or plain.")
         }),
     }
 }

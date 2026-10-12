@@ -92,7 +92,7 @@ struct Arguments {
     #[arg(
         long,
         value_name = "LAYOUT",
-        help = "BDSP output layout: atmosphere, yuzu, ryujinx or emulator"
+        help = "BDSP output layout: atmosphere, eden, ryubing or plain"
     )]
     layout: Option<String>,
 }

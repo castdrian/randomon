@@ -108,9 +108,9 @@ fn layouts_place_files_where_loaders_expect_them() {
     assert!(atmosphere.contains(&PathBuf::from(
         "atmosphere/exefs_patches/randomon_bdsp/ABC.ips"
     )));
-    let yuzu = paths(OutputLayout::Yuzu);
+    let yuzu = paths(OutputLayout::Eden);
     assert!(yuzu.contains(&PathBuf::from("0100000011D90000/randomon/exefs/ABC.ips")));
-    let ryujinx = paths(OutputLayout::Ryujinx);
+    let ryujinx = paths(OutputLayout::Ryubing);
     assert!(ryujinx.contains(&PathBuf::from(
         "mods/contents/0100000011D90000/randomon/romfs/Data/StreamingAssets/AssetAssistant/Dpr/masterdatas"
     )));

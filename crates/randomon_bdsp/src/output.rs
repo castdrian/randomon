@@ -11,25 +11,25 @@ pub const LOG_FILE_NAME: &str = "randomon-bdsp-log.txt";
 pub enum OutputLayout {
     #[default]
     Atmosphere,
-    Yuzu,
-    Ryujinx,
+    Eden,
+    Ryubing,
     Emulator,
 }
 
 impl OutputLayout {
     pub const ALL: [OutputLayout; 4] = [
         OutputLayout::Atmosphere,
-        OutputLayout::Yuzu,
-        OutputLayout::Ryujinx,
+        OutputLayout::Eden,
+        OutputLayout::Ryubing,
         OutputLayout::Emulator,
     ];
 
     pub fn parse(text: &str) -> Option<Self> {
         match text.to_ascii_lowercase().as_str() {
             "atmosphere" | "switch" => Some(Self::Atmosphere),
-            "yuzu" | "suyu" | "sudachi" | "citron" | "eden" => Some(Self::Yuzu),
-            "ryujinx" | "ryubing" => Some(Self::Ryujinx),
-            "emulator" => Some(Self::Emulator),
+            "eden" | "citron" | "sudachi" | "suyu" | "yuzu" => Some(Self::Eden),
+            "ryubing" | "ryujinx" => Some(Self::Ryubing),
+            "plain" | "emulator" => Some(Self::Emulator),
             _ => None,
         }
     }
@@ -37,20 +37,20 @@ impl OutputLayout {
     pub fn mod_folder(self, games: &[Game]) -> PathBuf {
         match (self, games) {
             (Self::Atmosphere, _) => PathBuf::from("atmosphere"),
-            (Self::Ryujinx, _) => PathBuf::from("mods"),
-            (Self::Yuzu, [game]) => PathBuf::from(game.title_id()),
-            (Self::Yuzu | Self::Emulator, _) => PathBuf::new(),
+            (Self::Ryubing, _) => PathBuf::from("mods"),
+            (Self::Eden, [game]) => PathBuf::from(game.title_id()),
+            (Self::Eden | Self::Emulator, _) => PathBuf::new(),
         }
     }
 
     pub fn install_hint(self) -> &'static str {
         match self {
             Self::Atmosphere => "Copy the atmosphere folder to the root of your Switch's SD card.",
-            Self::Yuzu => {
+            Self::Eden => {
                 "Copy this folder into your emulator's load folder (right-click the game, then Open Mod Data Location)."
             }
-            Self::Ryujinx => {
-                "Copy the mods folder into your Ryujinx data folder (File, then Open Ryujinx Folder)."
+            Self::Ryubing => {
+                "Copy the mods folder into your Ryubing data folder (File, then Open Ryujinx Folder)."
             }
             Self::Emulator => "Point your emulator's mod loader at the romfs and exefs folders.",
         }
@@ -59,8 +59,8 @@ impl OutputLayout {
     pub fn label(self) -> &'static str {
         match self {
             Self::Atmosphere => "Atmosphere (Switch)",
-            Self::Yuzu => "Yuzu-family emulators",
-            Self::Ryujinx => "Ryujinx",
+            Self::Eden => "Eden, Citron and other yuzu-based emulators",
+            Self::Ryubing => "Ryubing (Ryujinx)",
             Self::Emulator => "Plain romfs/exefs folders",
         }
     }
@@ -88,11 +88,11 @@ fn mod_roots(layout: OutputLayout, game: Game) -> (PathBuf, PathBuf) {
                 .join("romfs"),
             PathBuf::from("atmosphere/exefs_patches").join(EXEFS_PATCH_FOLDER),
         ),
-        OutputLayout::Yuzu => {
+        OutputLayout::Eden => {
             let root = PathBuf::from(title).join(MOD_NAME);
             (root.join("romfs"), root.join("exefs"))
         }
-        OutputLayout::Ryujinx => {
+        OutputLayout::Ryubing => {
             let root = PathBuf::from("mods/contents").join(title).join(MOD_NAME);
             (root.join("romfs"), root.join("exefs"))
         }
