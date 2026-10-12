@@ -205,7 +205,9 @@ fn run(arguments: Arguments) -> Result<(), String> {
     let result = registry
         .randomize_file(&input, &settings, seed, &options)
         .map_err(|error| error.to_string())?;
-    if result.feedback.changed_starter {
+    if result.feedback.changed_starter
+        && settings.starters_mod == randomon_settings::StartersMod::Custom
+    {
         eprintln!(
             "WARNING: The custom starters you chose aren't available in this game, so they were changed."
         );

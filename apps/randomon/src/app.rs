@@ -736,6 +736,35 @@ mod tests {
     }
 
     #[test]
+    fn choosing_random_starters_on_a_3ds_game_reaches_the_engine_and_the_export() {
+        let Some(rom) = std::env::var_os("RANDOMON_GEN6_ROM").map(PathBuf::from) else {
+            return;
+        };
+        let mut app = Randomon::new();
+        app.load_game(rom);
+        assert!(
+            app.rom
+                .as_ref()
+                .is_some_and(|loaded| loaded.engine.is_some())
+        );
+        edit(
+            &mut app,
+            Edit::Select(|s| s.starters_mod = randomon_settings::StartersMod::CompletelyRandom),
+        );
+        assert_eq!(
+            app.output_settings().starters_mod,
+            randomon_settings::StartersMod::CompletelyRandom
+        );
+        let exported = Settings::from_versioned_settings_string(&app.settings_string)
+            .expect("valid")
+            .settings;
+        assert_eq!(
+            exported.starters_mod,
+            randomon_settings::StartersMod::CompletelyRandom
+        );
+    }
+
+    #[test]
     fn controls_update_the_settings_string_live() {
         let mut app = app_with_rom("gba");
         let before = app.settings_string.clone();
