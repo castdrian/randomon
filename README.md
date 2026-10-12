@@ -5,7 +5,7 @@
 
 A fast, native Pokémon randomizer for macOS, Windows and Linux
 
-<p align="center"><img src="assets/screenshots/app.png" alt="randomon with Pokémon Yellow loaded, showing the Pokémon Traits options" width="100%"></p>
+<p align="center"><img src="assets/screenshots/app.png" alt="randomon with Pokémon X and its v1.5 update loaded, showing the starter, static and trade options" width="100%"></p>
 
 ## Download
 

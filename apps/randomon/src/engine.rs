@@ -31,9 +31,7 @@ pub struct EngineGame {
     pub source: RomSource,
     pub path: PathBuf,
     pub rom_name: String,
-    pub rom_code: String,
     pub generation: i32,
-    pub support_level: String,
     pub default_extension: String,
     pub capabilities: Capabilities,
 }
@@ -105,9 +103,7 @@ fn inspect_in_memory(path: &Path, size_bytes: u64) -> Option<EngineGame> {
 fn engine_game(handler: &dyn RomHandler, source: RomSource, path: &Path) -> EngineGame {
     EngineGame {
         rom_name: handler.rom_name(),
-        rom_code: handler.rom_code(),
         generation: handler.generation_of_pokemon(),
-        support_level: handler.support_level(),
         default_extension: handler.default_extension(),
         capabilities: capabilities_of(handler),
         source,
@@ -231,7 +227,7 @@ pub async fn game_update_version(
         .map_err(|error| error.to_string())?
 }
 
-fn game_update_version_blocking(
+pub(crate) fn game_update_version_blocking(
     game: &EngineGame,
     update: &Path,
 ) -> Result<Option<String>, String> {

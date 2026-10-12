@@ -182,6 +182,12 @@ impl Randomon {
         if let Some(query) = boot.search {
             self.search = query;
         }
+        if let Some(update) = boot.update
+            && let Some(game) = self.rom.as_ref().and_then(|loaded| loaded.engine.as_ref())
+            && let Ok(version) = engine::game_update_version_blocking(game, &update)
+        {
+            self.game_update = Some(GameUpdate::verified(update, version));
+        }
         if let Some(version) = boot.update_version {
             self.game_update = Some(GameUpdate::verified(
                 PathBuf::from("update.cia"),
@@ -584,10 +590,7 @@ impl Randomon {
             (None, None) => Capabilities::provisional(loaded.platform),
         };
         self.status = Some(match &loaded.engine {
-            Some(game) => Status::Info(format!(
-                "Loaded {} ({}, generation {}, support: {})",
-                game.rom_name, game.rom_code, game.generation, game.support_level
-            )),
+            Some(game) => Status::Info(format!("Loaded {}", game.rom_name)),
             None => Status::Info(format!(
                 "Loaded {}. Randomizing this generation isn't ported yet, so its options are a preview.",
                 loaded.file_name

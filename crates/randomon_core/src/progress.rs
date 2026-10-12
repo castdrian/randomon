@@ -103,6 +103,7 @@ struct Position {
     fraction: f32,
     label: &'static str,
     last_emitted: Option<Instant>,
+    stage_has_detail: bool,
 }
 
 #[derive(Debug)]
@@ -122,6 +123,7 @@ impl ProgressPlan {
                 fraction: 0.0,
                 label: "",
                 last_emitted: None,
+                stage_has_detail: false,
             }),
         }
     }
@@ -143,6 +145,9 @@ impl ProgressPlan {
             return;
         };
         position.last_emitted = Some(Instant::now());
+        if detail.is_some() {
+            position.stage_has_detail = true;
+        }
         reporter.report(Progress {
             completed_steps: position.step,
             total_steps: self.total_steps(),
@@ -153,9 +158,10 @@ impl ProgressPlan {
     }
 
     fn is_due(position: &Position) -> bool {
-        position
-            .last_emitted
-            .is_none_or(|emitted| emitted.elapsed() >= DETAIL_INTERVAL)
+        !position.stage_has_detail
+            || position
+                .last_emitted
+                .is_none_or(|emitted| emitted.elapsed() >= DETAIL_INTERVAL)
     }
 
     pub fn begin(&self, stage: Stage) {
@@ -171,6 +177,7 @@ impl ProgressPlan {
         position.step = step;
         position.fraction = 0.0;
         position.label = stage.label();
+        position.stage_has_detail = false;
         self.emit(&mut position, None);
     }
 
@@ -288,7 +295,8 @@ mod tests {
         std::thread::sleep(DETAIL_INTERVAL);
         plan.detail(500, 1000, || "Trainer 501 of 1000".to_owned());
         let seen = seen.lock().expect("progress lock");
-        assert_eq!(seen.len(), 2);
+        assert_eq!(seen.len(), 3);
+        assert_eq!(seen[1].detail.as_deref(), Some("Trainer 1 of 1000"));
         let last = seen.last().expect("detail");
         assert_eq!(last.detail.as_deref(), Some("Trainer 501 of 1000"));
         assert!((last.fraction() - 0.25).abs() < f32::EPSILON);
