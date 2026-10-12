@@ -1,9 +1,7 @@
 name: Release
 
 on:
-    workflow_run:
-        workflows: [CI]
-        types: [completed]
+    push:
         branches: [main]
     workflow_dispatch:
 
@@ -13,6 +11,7 @@ concurrency:
 
 env:
     CARGO_TERM_COLOR: always
+    CARGO_INCREMENTAL: 0
     GIT_CONFIG_COUNT: 1
     GIT_CONFIG_KEY_0: init.defaultBranch
     GIT_CONFIG_VALUE_0: main
@@ -26,8 +25,10 @@ env:
         semantic-release
 
 jobs:
+    checks:
+        uses: ./.github/workflows/ci.yml
+
     version:
-        if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
         runs-on: ubuntu-latest
         permissions:
             contents: write
@@ -165,34 +166,64 @@ jobs:
                   name: windows
                   path: dist/*
 
-    macos:
+    macos-build:
         needs: version
         if: needs.version.outputs.version != ''
+        strategy:
+            matrix:
+                target: [aarch64-apple-darwin, x86_64-apple-darwin]
         runs-on: macos-26
-        timeout-minutes: 60
         steps:
             - uses: actions/checkout@v7
               with:
                   fetch-depth: 1
             - uses: dtolnay/rust-toolchain@stable
               with:
-                  targets: aarch64-apple-darwin, x86_64-apple-darwin
+                  targets: ${{ matrix.target }}
             - uses: actions/setup-go@v7
               with:
                   go-version-file: tools/go.mod
                   cache-dependency-path: tools/go.mod
             - run: go run ./tools/cmd/set-version ${{ needs.version.outputs.version }}
             - uses: Swatinem/rust-cache@v2
+              with:
+                  key: ${{ matrix.target }}
+            - run: cargo build --release -p randomon -p randomon-cli --target ${{ matrix.target }}
+            - name: Collect binaries
+              run: |
+                  mkdir -p "dist/${{ matrix.target }}"
+                  cp "target/${{ matrix.target }}/release/randomon" "target/${{ matrix.target }}/release/randomon-cli" "dist/${{ matrix.target }}/"
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: macos-binaries-${{ matrix.target }}
+                  path: dist/
+
+    macos:
+        needs: [version, macos-build]
+        runs-on: macos-26
+        timeout-minutes: 60
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  fetch-depth: 1
+            - uses: actions/setup-go@v7
+              with:
+                  go-version-file: tools/go.mod
+                  cache-dependency-path: tools/go.mod
+            - uses: actions/download-artifact@v8
+              with:
+                  pattern: macos-binaries-*
+                  path: build/targets
+                  merge-multiple: true
             - name: Build universal binaries
               run: |
-                  cargo build --release -p randomon -p randomon-cli --target aarch64-apple-darwin
-                  cargo build --release -p randomon -p randomon-cli --target x86_64-apple-darwin
                   mkdir -p build/universal
                   for binary in randomon randomon-cli; do
                     lipo -create \
-                      "target/aarch64-apple-darwin/release/$binary" \
-                      "target/x86_64-apple-darwin/release/$binary" \
+                      "build/targets/aarch64-apple-darwin/$binary" \
+                      "build/targets/x86_64-apple-darwin/$binary" \
                       -output "build/universal/$binary"
+                    chmod +x "build/universal/$binary"
                   done
 
             - name: Assemble app bundle
@@ -300,7 +331,7 @@ jobs:
               run: security delete-keychain "$RUNNER_TEMP/randomon-signing.keychain-db" || true
 
     publish:
-        needs: [version, linux, windows-installer, macos]
+        needs: [checks, version, linux, windows-installer, macos]
         runs-on: ubuntu-latest
         permissions:
             contents: write

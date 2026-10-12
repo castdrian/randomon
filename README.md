@@ -1,7 +1,6 @@
 # randomon
 
 [![Release](https://github.com/castdrian/randomon/actions/workflows/release.yml/badge.svg)](https://github.com/castdrian/randomon/actions/workflows/release.yml)
-[![CI](https://github.com/castdrian/randomon/actions/workflows/ci.yml/badge.svg)](https://github.com/castdrian/randomon/actions/workflows/ci.yml)
 
 A fast, native Pokémon randomizer for macOS, Windows and Linux
 
