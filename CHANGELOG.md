@@ -1,3 +1,16 @@
+## [1.2.0](https://github.com/castdrian/randomon/compare/v1.1.1...v1.2.0) (2026-10-12)
+
+### Features
+
+* **app:** add a built-in self updater backed by GitHub releases ([25abec6](https://github.com/castdrian/randomon/commit/25abec6a572fe65a84a07ed4c35efa1d5f073c02))
+* **app:** stream randomization progress and show a clear result card ([eadd3f1](https://github.com/castdrian/randomon/commit/eadd3f1a46139c3bfcc851a5a754bbed7fe7ea4c))
+
+### Bug Fixes
+
+* **app:** show the first progress detail of every stage, report LayeredFS writes, tidy the loaded status and refresh the screenshot ([ca68277](https://github.com/castdrian/randomon/commit/ca68277754694d075bf72e7e4da15731c19ddad1))
+* **bdsp:** name the current Switch emulators, Eden and Ryubing, in layouts and the README ([9764460](https://github.com/castdrian/randomon/commit/97644606d96d5ee4d30cf0a8402a2444361f3105))
+* **build:** vendor block with the uninhabited static fixed so builds have no future-incompat warnings ([06af156](https://github.com/castdrian/randomon/commit/06af1560e010d290bf9a14aa41f7240189830d60))
+
 ## [1.1.1](https://github.com/castdrian/randomon/compare/v1.1.0...v1.1.1) (2026-10-11)
 
 ### Bug Fixes
