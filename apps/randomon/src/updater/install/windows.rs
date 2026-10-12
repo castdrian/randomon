@@ -92,6 +92,11 @@ mod tests {
         assert!(script.starts_with("Wait-Process -Id 4242"));
         assert!(script.contains("'/S /D=C:/Users/O''Brien/AppData/Local/Programs/randomon'"));
         assert!(script.contains("-Wait -PassThru"));
-        assert!(script.contains("randomon/randomon.exe'"));
+        let executable = Path::new("C:/Users/O'Brien/AppData/Local/Programs/randomon")
+            .join("randomon.exe")
+            .display()
+            .to_string()
+            .replace('\'', "''");
+        assert!(script.contains(&format!("'{executable}'")));
     }
 }
