@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use randomon_java::{RandomSource, SharedRandomSource};
 use randomon_log::LogWriter;
@@ -6,7 +7,8 @@ use randomon_settings::{CustomNames, LineSeparator, Settings, default_custom_nam
 
 use crate::error::{RandomizationError, Result};
 use crate::handler::{OutputFile, RomHandler};
-use crate::randomizer::{Randomizer, RomOutput};
+use crate::progress::{ProgressPlan, ProgressReporter};
+use crate::randomizer::{Randomizer, RomOutput, planned_stages};
 use crate::tweak::{TweakForRomFeedback, tweak_for_rom};
 
 pub trait RomHandlerFactory: Send + Sync {
@@ -65,6 +67,7 @@ pub struct RandomizationOptions {
     pub custom_names_checksum: Option<i32>,
     pub output_path: Option<PathBuf>,
     pub game_update: Option<PathBuf>,
+    pub progress: Option<ProgressReporter>,
 }
 
 impl Default for RandomizationOptions {
@@ -77,6 +80,7 @@ impl Default for RandomizationOptions {
             custom_names_checksum: None,
             output_path: None,
             game_update: None,
+            progress: None,
         }
     }
 }
@@ -213,7 +217,7 @@ impl HandlerRegistry {
     }
 }
 
-fn top_level_directories(files: &[OutputFile]) -> Vec<String> {
+pub(crate) fn top_level_directories(files: &[OutputFile]) -> Vec<String> {
     let mut roots: Vec<String> = Vec::new();
     for file in files {
         if let Some((root, _)) = file.path.split_once('/')
@@ -238,13 +242,23 @@ fn purge_directory(directory: &Path) -> std::io::Result<()> {
 }
 
 pub fn write_directory_output(root: &Path, files: &[OutputFile]) -> std::io::Result<()> {
+    write_directory_output_with_progress(root, files, &|_, _| {})
+}
+
+pub fn write_directory_output_with_progress(
+    root: &Path,
+    files: &[OutputFile],
+    on_progress: &dyn Fn(f32, &str),
+) -> std::io::Result<()> {
     for directory in top_level_directories(files) {
         let path = root.join(directory);
         if path.is_dir() {
             purge_directory(&path)?;
         }
     }
-    for file in files {
+    let total = files.len().max(1) as f32;
+    for (index, file) in files.iter().enumerate() {
+        on_progress(index as f32 / total, &format!("Writing {}", file.path));
         let destination = root.join(&file.path);
         if file.path.ends_with('/') {
             std::fs::create_dir_all(&destination)?;
@@ -255,6 +269,7 @@ pub fn write_directory_output(root: &Path, files: &[OutputFile]) -> std::io::Res
         }
         std::fs::write(&destination, &file.bytes)?;
     }
+    on_progress(1.0, "All files written");
     Ok(())
 }
 
@@ -293,6 +308,11 @@ pub fn randomize_with_handler(
         engine.handler_logging = options.handler_logging;
     }
     let is_gen1 = handler.generation_of_pokemon() == 1;
+    let progress = Arc::new(ProgressPlan::new(
+        planned_stages(&settings, &*handler),
+        options.progress.clone(),
+    ));
+    handler.core_mut().progress = Some(Arc::clone(&progress));
     let run = Randomizer {
         settings: &settings,
         handler: &mut *handler,
@@ -301,9 +321,13 @@ pub fn randomize_with_handler(
         settings_string,
         is_gen1,
         output_path: options.output_path.as_deref(),
+        progress: &progress,
     }
-    .randomize(seed)?;
+    .randomize(seed);
+    handler.core_mut().progress = None;
+    let run = run?;
     let log = std::mem::take(&mut handler.core_mut().engine.log).into_string();
+    progress.finish();
     Ok(RandomizationOutput {
         rom: run.rom,
         log,

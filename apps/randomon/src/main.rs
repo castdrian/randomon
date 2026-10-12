@@ -12,6 +12,7 @@ mod game_picker;
 mod keys;
 mod options;
 mod rom;
+mod run;
 mod section;
 mod settings_files;
 mod support;

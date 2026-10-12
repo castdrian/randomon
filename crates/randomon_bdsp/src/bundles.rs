@@ -30,10 +30,22 @@ pub fn looks_like_bdsp_romfs(path: &Path) -> bool {
 
 impl Bundles {
     pub fn load(romfs: &Path) -> Result<Self> {
+        Self::load_with_progress(romfs, &|_, _, _| {})
+    }
+
+    pub fn load_with_progress(
+        romfs: &Path,
+        on_bundle: &dyn Fn(usize, usize, &Path),
+    ) -> Result<Self> {
         let data = data_directory(romfs);
         let mut files = BTreeMap::new();
-        for bundle in BundleId::ALL {
+        for (index, bundle) in BundleId::ALL.into_iter().enumerate() {
             let path = data.join(bundle.relative_path());
+            on_bundle(
+                index,
+                BundleId::ALL.len(),
+                Path::new(bundle.relative_path()),
+            );
             if !path.is_file() {
                 if bundle.is_required() {
                     return Err(BdspError::MissingFile(path));

@@ -1,3 +1,4 @@
+use crate::engine::detail;
 use std::collections::BTreeMap;
 
 use randomon_data::{Aura, PokemonId, StaticEncounter, TotemPokemon};
@@ -271,7 +272,8 @@ pub fn randomize_static_pokemon<H: RomHandler + ?Sized>(
         legendaries_left = legendaries_pool.clone();
         nonlegs_left = nonlegs_pool.clone();
         ultra_beasts_left = ultra_beasts_pool.clone();
-        for old in &current {
+        for (done, old) in current.iter().enumerate() {
+            detail::static_encounter(handler, done, current.len(), old);
             let mut new_static = clone_static_encounter(old);
             let new_pokemon;
             if handler.core().data.is_legendary(old.pkmn) {
@@ -338,7 +340,8 @@ pub fn randomize_static_pokemon<H: RomHandler + ?Sized>(
         remove_all(&mut pokemon_left, &banned);
         let pokemon_pool = pokemon_left.clone();
         let main_game_legendaries = handler.get_main_game_legendaries();
-        for old in &current {
+        for (done, old) in current.iter().enumerate() {
+            detail::static_encounter(handler, done, current.len(), old);
             let mut new_static = clone_static_encounter(old);
             let old_pokemon = if old.forme > 0 {
                 handler.get_alt_forme_of_pokemon(old.pkmn, old.forme)
@@ -439,7 +442,8 @@ pub fn randomize_static_pokemon<H: RomHandler + ?Sized>(
         };
         remove_all(&mut pokemon_left, &banned);
         let pokemon_pool = pokemon_left.clone();
-        for old in &current {
+        for (done, old) in current.iter().enumerate() {
+            detail::static_encounter(handler, done, current.len(), old);
             let mut new_static = clone_static_encounter(old);
             let new_pokemon = if really_swap_megas && can_mega_evolve(handler, old) {
                 mega_evo_pokemon(handler, &pool.main, &mut pokemon_left, &mut new_static)?
@@ -539,7 +543,8 @@ pub fn randomize_totem_pokemon<H: RomHandler + ?Sized>(
     remove_all(&mut pokemon_left, &banned);
     let mut random = handler.core().engine.random.clone();
     let mut replacements: Vec<TotemPokemon> = Vec::new();
-    for old in &current {
+    for (done, old) in current.iter().enumerate() {
+        detail::counted(handler, done, current.len(), "Totem");
         let mut new_totem = TotemPokemon {
             encounter: StaticEncounter {
                 held_item: old.encounter.held_item,

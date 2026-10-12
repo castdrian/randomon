@@ -18,6 +18,7 @@ use crate::keys::{self, KeysRetry};
 use crate::options::spec::Action;
 use crate::options::{self, effective, rules};
 use crate::rom::{self, LoadedRom};
+use crate::run::{self, CardAction, Finished, RunEvent, RunProgress, RunState};
 use crate::section::Section;
 use crate::settings_files::{self, ImportedSettings};
 use crate::support;
@@ -31,6 +32,7 @@ use game_update::GameUpdate;
 const SEED_SPACE: u64 = 1 << 48;
 const OPTIONS_SCROLL_ID: &str = "options-scroll";
 const INITIAL_WINDOW_WIDTH: f32 = 1240.0;
+const LAYERED_FS_HINT: &str = "Copy this folder to your emulator's mods folder (Azahar: right-click the game, then Open Mods Location) or to /luma/titles on your 3DS SD card.";
 
 pub fn run() -> iced::Result {
     iced::application(Randomon::boot, Randomon::update, Randomon::view)
@@ -59,7 +61,7 @@ struct Randomon {
     dialog: Option<Dialog>,
     custom_names: CustomNames,
     status: Option<Status>,
-    randomizing: bool,
+    run: RunState,
     bdsp: Option<BdspSession>,
     updater: Updater,
 }
@@ -105,7 +107,8 @@ enum Message {
     RollSeed,
     Randomize,
     OutputChosen(Option<PathBuf>),
-    Randomized(Result<engine::RandomizedGame, String>),
+    Randomization(RunEvent<engine::RandomizedGame>),
+    Card(CardAction),
     OpenLink(&'static str),
     ChooseKeysFile,
     KeysFilePicked(Option<PathBuf>),
@@ -133,7 +136,7 @@ impl Randomon {
             dialog: None,
             custom_names: CustomNames::default_names(),
             status: None,
-            randomizing: false,
+            run: RunState::Idle,
             bdsp: None,
             updater: Updater::new(),
         };
@@ -167,6 +170,8 @@ impl Randomon {
     }
 
     fn apply_debug_boot(&mut self, boot: DebugBoot) {
+        let run_preview = boot.run_preview();
+        let bdsp_run_preview = boot.bdsp_run_preview();
         self.generation_override = boot.generation;
         if let Some(path) = boot.rom {
             self.load_game(path);
@@ -183,6 +188,9 @@ impl Randomon {
                 Some(version),
             ));
         }
+        if let Some(run) = run_preview {
+            self.run = run;
+        }
         self.dialog = match boot.dialog.as_deref() {
             Some("generations") => Some(Dialog::GenerationLimits(GenerationLimitDraft::open(
                 self.settings.current_restrictions,
@@ -193,10 +201,13 @@ impl Randomon {
             Some("remove-update") => Some(Dialog::ConfirmRemoveUpdate),
             _ => None,
         };
-        if boot.dialog.as_deref() == Some("bdsp-settings")
-            && let Some(session) = &mut self.bdsp
-        {
-            let _ = session.update(BdspMessage::OpenSharing);
+        if let Some(session) = &mut self.bdsp {
+            if boot.dialog.as_deref() == Some("bdsp-settings") {
+                let _ = session.update(BdspMessage::OpenSharing);
+            }
+            if let Some(run) = bdsp_run_preview {
+                session.preview_run(run);
+            }
         }
     }
 
@@ -278,25 +289,16 @@ impl Randomon {
             Message::Randomize => return self.start_randomization(),
             Message::OutputChosen(None) => {}
             Message::OutputChosen(Some(output)) => return self.run_randomization(output),
-            Message::Randomized(result) => {
-                self.randomizing = false;
-                self.status = Some(match result {
-                    Ok(done) => Status::Info(match &done.log {
-                        Some(log) => format!(
-                            "Saved {} and its log {} (check value {:08X})",
-                            done.output.display(),
-                            log.display(),
-                            done.check_value
-                        ),
-                        None => format!(
-                            "Saved {} (check value {:08X})",
-                            done.output.display(),
-                            done.check_value
-                        ),
-                    }),
-                    Err(error) => Status::Error(format!("Randomization failed: {error}")),
-                });
+            Message::Randomization(RunEvent::Progress(progress)) => {
+                self.run.advance(progress);
             }
+            Message::Randomization(RunEvent::Finished(result)) => {
+                self.run = match result {
+                    Ok(done) => RunState::Done(self.finished(done)),
+                    Err(error) => RunState::Failed(error),
+                };
+            }
+            Message::Card(action) => return self.handle_card(action),
             Message::OpenLink(url) => support::open_link(url),
             Message::ChooseKeysFile => {
                 return Task::perform(keys::pick_keys_file(), Message::KeysFilePicked);
@@ -310,7 +312,7 @@ impl Randomon {
             Message::Updater(message) => {
                 return self
                     .updater
-                    .update(message, self.randomizing)
+                    .update(message, self.is_randomizing())
                     .map(Message::Updater);
             }
             Message::Bdsp(message) => {
@@ -444,6 +446,10 @@ impl Randomon {
         }
     }
 
+    fn is_randomizing(&self) -> bool {
+        self.run.is_running() || self.bdsp.as_ref().is_some_and(BdspSession::is_running)
+    }
+
     fn start_randomization(&mut self) -> Task<Message> {
         let Some(loaded) = &self.rom else {
             return Task::none();
@@ -474,18 +480,46 @@ impl Randomon {
         let Ok(seed) = self.seed.trim().parse::<i64>() else {
             return Task::none();
         };
-        self.randomizing = true;
-        self.status = Some(Status::Info("Randomizing…".to_owned()));
-        Task::perform(
-            engine::randomize(
-                game,
-                self.output_settings(),
-                seed,
-                output,
-                self.update_path(),
-            ),
-            Message::Randomized,
+        self.run = RunState::Running(RunProgress::starting());
+        let request = engine::RandomizeRequest {
+            game,
+            settings: self.output_settings(),
+            seed,
+            output,
+            game_update: self.update_path(),
+        };
+        Task::run(
+            run::in_background(move |sink| engine::randomize_with_progress(request, sink)),
+            Message::Randomization,
         )
+    }
+
+    fn finished(&self, done: engine::RandomizedGame) -> Finished {
+        Finished {
+            headline: "Your randomized game is ready",
+            race_code: self
+                .settings
+                .race_mode
+                .then(|| run::race_code(done.check_value)),
+            install_hint: (done.kind == engine::OutputKind::LayeredFs)
+                .then(|| LAYERED_FS_HINT.to_owned()),
+            output: done.output,
+            log: done.log,
+        }
+    }
+
+    fn handle_card(&mut self, action: CardAction) -> Task<Message> {
+        run::handle_card_side_effect(&action);
+        match action {
+            CardAction::Dismiss => self.run = RunState::Idle,
+            CardAction::RandomizeAgain => {
+                self.run = RunState::Idle;
+                self.seed = random_seed().to_string();
+                return self.start_randomization();
+            }
+            CardAction::Reveal(_) | CardAction::OpenLog(_) => {}
+        }
+        Task::none()
     }
 
     fn update_path(&self) -> Option<PathBuf> {

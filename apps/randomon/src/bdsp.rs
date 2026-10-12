@@ -7,10 +7,13 @@ use iced::widget::{
 };
 use iced::{Alignment, Element, Fill, Length, Task};
 use randomon_bdsp::{
-    BdspSettings, EVOLUTION_MODES, Game, LEARNSET_MODES, LEVEL_PERCENT_RANGE, ModeLabel,
+    BdspSettings, EVOLUTION_MODES, Game, LEARNSET_MODES, LEVEL_PERCENT_RANGE, ModTarget, ModeLabel,
     OutputLayout, SPEED_PERCENT_RANGE, STARTER_MODES, TM_COMPATIBILITY_MODES, TRAINER_MODES,
-    WILD_MODES, detect_games, looks_like_bdsp_romfs, randomize_romfs,
+    WILD_MODES, WrittenMod, detect_games, looks_like_bdsp_romfs, randomize_romfs_to,
 };
+
+use crate::run::{self, CardAction, Finished, ProgressSink, RunEvent, RunProgress, RunState};
+use crate::ui::run_card;
 
 use crate::ui::action_bar;
 use crate::ui::dialogs::{self, Feedback};
@@ -40,7 +43,7 @@ pub struct BdspSession {
     seed: String,
     layout: OutputLayout,
     status: Option<Result<String, String>>,
-    busy: bool,
+    run: RunState,
     sharing: Option<Option<Feedback>>,
 }
 
@@ -64,7 +67,8 @@ pub enum BdspMessage {
     LayoutSelected(LayoutChoice),
     Randomize,
     OutputChosen(Option<PathBuf>),
-    Finished(Result<String, String>),
+    Randomization(RunEvent<WrittenMod>),
+    Card(CardAction),
     Close,
 }
 
@@ -128,7 +132,7 @@ impl BdspSession {
             seed: random_seed().to_string(),
             layout: OutputLayout::default(),
             status: None,
-            busy: false,
+            run: RunState::Idle,
             sharing: None,
         }
     }
@@ -184,26 +188,58 @@ impl BdspSession {
                 let Ok(seed) = self.seed.trim().parse::<u64>() else {
                     return Task::none();
                 };
-                self.busy = true;
-                self.status = Some(Ok("Randomizing…".to_owned()));
-                return Task::perform(
-                    randomize(
-                        self.romfs.clone(),
-                        self.settings.clone(),
-                        seed,
-                        output,
-                        self.layout,
-                        self.games.clone(),
-                    ),
-                    BdspMessage::Finished,
+                self.run = RunState::Running(RunProgress::starting());
+                self.status = None;
+                let request = BdspRequest {
+                    romfs: self.romfs.clone(),
+                    settings: self.settings.clone(),
+                    seed,
+                    target: ModTarget {
+                        directory: output,
+                        layout: self.layout,
+                        games: self.games.clone(),
+                    },
+                };
+                return Task::run(
+                    run::in_background(move |sink| randomize_with_progress(request, sink)),
+                    BdspMessage::Randomization,
                 );
             }
-            BdspMessage::Finished(result) => {
-                self.busy = false;
-                self.status = Some(result);
+            BdspMessage::Randomization(RunEvent::Progress(progress)) => {
+                self.run.advance(progress);
+            }
+            BdspMessage::Randomization(RunEvent::Finished(result)) => {
+                self.run = match result {
+                    Ok(written) => RunState::Done(finished(written, self.layout)),
+                    Err(error) => RunState::Failed(error),
+                };
+            }
+            BdspMessage::Card(action) => {
+                run::handle_card_side_effect(&action);
+                match action {
+                    CardAction::Dismiss => self.run = RunState::Idle,
+                    CardAction::RandomizeAgain => {
+                        self.run = RunState::Idle;
+                        self.seed = random_seed().to_string();
+                        return Task::done(BdspMessage::Randomize);
+                    }
+                    CardAction::Reveal(_) | CardAction::OpenLog(_) => {}
+                }
             }
         }
         Task::none()
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.run.is_running()
+    }
+
+    pub fn preview_run(&mut self, run: RunState) {
+        self.run = run;
+    }
+
+    pub fn run_overlay(&self) -> Option<Element<'_, BdspMessage>> {
+        run_card::overlay(&self.run).map(|card| card.map(BdspMessage::Card))
     }
 
     fn paste_settings_string(&mut self, value: &str) {
@@ -517,14 +553,11 @@ impl BdspSession {
             Some(Err(message)) => Some(text(message.clone()).size(12).style(text::danger).into()),
             None => None,
         };
-        let randomize = button(text(if self.busy {
-            "Randomizing…"
-        } else {
-            "Randomize"
-        }))
-        .padding([10, 28])
-        .style(style::primary_button)
-        .on_press_maybe((!self.busy).then_some(BdspMessage::Randomize));
+        let busy = self.run.is_running();
+        let randomize = button(text(if busy { "Randomizing…" } else { "Randomize" }))
+            .padding([10, 28])
+            .style(style::primary_button)
+            .on_press_maybe((!busy).then_some(BdspMessage::Randomize));
         let output = row![
             text("Output").size(13).style(style::muted_text),
             pick_list(
@@ -625,39 +658,32 @@ async fn choose_output_folder() -> Option<PathBuf> {
         .map(|handle| handle.path().to_path_buf())
 }
 
-async fn randomize(
+struct BdspRequest {
     romfs: PathBuf,
     settings: BdspSettings,
     seed: u64,
-    output: PathBuf,
-    layout: OutputLayout,
-    games: Vec<Game>,
-) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || {
-        crate::engine::guarded(|| randomize_blocking(romfs, settings, seed, output, layout, games))?
-    })
-    .await
-    .map_err(|error| error.to_string())?
+    target: ModTarget,
 }
 
-fn randomize_blocking(
-    romfs: PathBuf,
-    settings: BdspSettings,
-    seed: u64,
-    output: PathBuf,
-    layout: OutputLayout,
-    games: Vec<Game>,
-) -> Result<String, String> {
-    let randomized = randomize_romfs(&romfs, &settings, seed).map_err(|error| error.to_string())?;
-    let written = randomized
-        .write_to(&output, layout, &games)
-        .map_err(|error| error.to_string())?;
-    Ok(format!(
-        "Wrote {} files for {} to {} (seed {seed}).",
-        written.len(),
-        layout.label(),
-        output.display()
-    ))
+fn randomize_with_progress(request: BdspRequest, sink: ProgressSink) -> Result<WrittenMod, String> {
+    randomize_romfs_to(
+        &request.romfs,
+        &request.settings,
+        request.seed,
+        &request.target,
+        &|progress| sink(RunProgress::from(progress)),
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn finished(written: WrittenMod, layout: OutputLayout) -> Finished {
+    Finished {
+        headline: "Your randomized mod is ready",
+        output: written.mod_folder,
+        log: Some(written.log),
+        race_code: None,
+        install_hint: Some(format!("{}. {}", layout.label(), layout.install_hint())),
+    }
 }
 
 #[cfg(test)]

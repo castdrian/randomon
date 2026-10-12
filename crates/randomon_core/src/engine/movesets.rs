@@ -1,3 +1,4 @@
+use crate::engine::detail;
 use std::collections::{BTreeMap, HashSet};
 
 use randomon_data::constants::{global, moves as m};
@@ -262,7 +263,9 @@ pub fn randomize_moves_learnt<H: RomHandler + ?Sized>(
     let sets = create_sets_of_moves(handler, settings.block_broken_moveset_moves)?;
     let mut random = handler.core().engine.random.clone();
     let numbers: Vec<i32> = movesets.keys().copied().collect();
-    for number in numbers {
+    let moveset_count = numbers.len();
+    for (done, number) in numbers.into_iter().enumerate() {
+        detail::counted(handler, done, moveset_count, "Moveset");
         let Some(pokemon) = find_pokemon_in_pool_with_species_id(
             handler,
             &handler.core().engine.pool.main_incl_formes,
@@ -397,7 +400,9 @@ pub fn randomize_egg_moves<H: RomHandler + ?Sized>(
     let sets = create_sets_of_moves(handler, settings.block_broken_moveset_moves)?;
     let mut random = handler.core().engine.random.clone();
     let numbers: Vec<i32> = movesets.keys().copied().collect();
-    for number in numbers {
+    let moveset_count = numbers.len();
+    for (done, number) in numbers.into_iter().enumerate() {
+        detail::counted(handler, done, moveset_count, "Moveset");
         let Some(pokemon) = find_pokemon_in_pool_with_species_id(
             handler,
             &handler.core().engine.pool.main_incl_formes,

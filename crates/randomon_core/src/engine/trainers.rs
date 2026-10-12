@@ -1,3 +1,4 @@
+use crate::engine::detail;
 use std::collections::{BTreeMap, BTreeSet};
 
 use randomon_data::constants::abilities;
@@ -505,7 +506,8 @@ pub fn randomize_trainer_pokes<H: RomHandler + ?Sized>(
     }
     let main_playthrough_trainers = handler.get_main_playthrough_trainers();
 
-    for &position in &scrambled {
+    for (done, &position) in scrambled.iter().enumerate() {
+        detail::trainer(handler, done, scrambled.len(), &current_trainers[position]);
         apply_level_modifier_to_trainer_pokemon(&mut current_trainers[position], level_modifier);
         let trainer_index = current_trainers[position].index;
         let tag = current_trainers[position].tag.clone();

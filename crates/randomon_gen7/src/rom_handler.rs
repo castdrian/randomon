@@ -177,6 +177,19 @@ impl RomHandler for Gen7RomHandler {
         self.rom.get_mut().save_as_ncch(path, &acronym, seed)
     }
 
+    fn save_rom_to_path_with_progress(
+        &mut self,
+        path: &Path,
+        seed: i64,
+        on_progress: &dyn Fn(f32, &str),
+    ) -> Result<()> {
+        self.save_files()?;
+        let acronym = self.entry.acronym.clone();
+        self.rom
+            .get_mut()
+            .save_as_ncch_with_progress(path, &acronym, seed, on_progress)
+    }
+
     fn save_rom_directory(&mut self) -> Result<Vec<OutputFile>> {
         self.save_files()?;
         self.rom.get_mut().layered_fs_files()

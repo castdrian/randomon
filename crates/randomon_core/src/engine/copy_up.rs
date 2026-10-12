@@ -1,3 +1,4 @@
+use crate::engine::detail;
 use std::collections::BTreeSet;
 
 use randomon_data::{EvolutionId, GameData, PokemonId};
@@ -127,7 +128,9 @@ pub fn copy_up_evolutions_helper<H: RomHandler + ?Sized, C>(
     let basic = basic_pokemon(data, &all);
     let splits = split_evolutions(data, &all);
     let middles = middle_evolutions(data, &all_without_formes, copy_split_evos);
-    for &pokemon in &basic {
+    let total = all.iter().flatten().count();
+    for (done, &pokemon) in basic.iter().enumerate() {
+        detail::pokemon(handler, done, total, pokemon);
         base(handler, context, pokemon)?;
         handler.core_mut().data.pk_mut(pokemon).temporary_flag = true;
     }
@@ -137,7 +140,8 @@ pub fn copy_up_evolutions_helper<H: RomHandler + ?Sized, C>(
             handler.core_mut().data.pk_mut(pokemon).temporary_flag = true;
         }
     }
-    for &pokemon in all.iter().flatten() {
+    for (done, &pokemon) in all.iter().flatten().enumerate() {
+        detail::pokemon(handler, done, total, pokemon);
         if is_flagged(handler, pokemon) {
             continue;
         }

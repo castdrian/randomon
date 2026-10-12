@@ -13,9 +13,11 @@ use randomon_settings::{
     TmsMod, TrainersMod, TypesMod, VERSION, VERSION_STRING, WildPokemonMod,
 };
 
+use crate::api::{top_level_directories, write_directory_output_with_progress};
 use crate::engine::util::rotate_check_value;
-use crate::error::Result;
+use crate::error::{RandomizationError, Result};
 use crate::handler::{OutputFile, RomHandler};
+use crate::progress::{ProgressPlan, Stage};
 use crate::state::EvolutionUpdates;
 
 const INVALID_ROM_LOADED: &str = "The ROM you loaded is not a clean, official ROM.\nRandomizing ROM hacks or bad ROM dumps is not supported and may cause issues.\n";
@@ -42,6 +44,7 @@ pub struct Randomizer<'a> {
     pub settings_string: String,
     pub is_gen1: bool,
     pub output_path: Option<&'a Path>,
+    pub progress: &'a ProgressPlan,
 }
 
 fn log(handler: &mut dyn RomHandler) -> &mut LogWriter {
@@ -104,6 +107,7 @@ impl Randomizer<'_> {
         let mut shops_changed = false;
 
         self.handler.set_pokemon_pool(Some(settings));
+        self.progress.begin(Stage::Moves);
         if settings.limit_pokemon {
             self.handler.remove_evos_for_pokemon_pool();
         }
@@ -135,9 +139,11 @@ impl Randomizer<'_> {
             self.handler.randomize_move_category();
             moves_changed = true;
         }
+        self.progress.begin(Stage::MiscTweaks);
         if settings.current_misc_tweaks != randomon_settings::NO_MISC_TWEAKS {
             self.handler.apply_misc_tweaks(settings)?;
         }
+        self.progress.begin(Stage::Types);
         if settings.update_base_stats {
             self.handler.update_pokemon_stats(settings);
             pokemon_traits_changed = true;
@@ -153,6 +159,7 @@ impl Randomizer<'_> {
             self.handler.randomize_wild_held_items(settings)?;
             pokemon_traits_changed = true;
         }
+        self.progress.begin(Stage::Evolutions);
         if settings.evolutions_mod == EvolutionsMod::Random {
             self.handler.randomize_evolutions(settings)?;
             evolutions_changed = true;
@@ -163,6 +170,7 @@ impl Randomizer<'_> {
         if evolutions_changed {
             self.log_evolution_changes();
         }
+        self.progress.begin(Stage::BaseStats);
         match settings.base_statistics_mod {
             randomon_settings::BaseStatisticsMod::Shuffle => {
                 self.handler.shuffle_pokemon_stats(settings)?;
@@ -174,6 +182,7 @@ impl Randomizer<'_> {
             }
             randomon_settings::BaseStatisticsMod::Unchanged => {}
         }
+        self.progress.begin(Stage::Abilities);
         if settings.abilities_mod == randomon_settings::AbilitiesMod::Randomize {
             self.handler.randomize_abilities(settings)?;
             pokemon_traits_changed = true;
@@ -229,6 +238,7 @@ impl Randomizer<'_> {
             let time_based = self.handler.get_time_based_evo_updates().clone();
             self.log_updated_evolutions(&time_based, None);
         }
+        self.progress.begin(Stage::Starters);
         match settings.starters_mod {
             StartersMod::Custom => {
                 self.handler.custom_starters(settings)?;
@@ -255,6 +265,7 @@ impl Randomizer<'_> {
         } else if !moves_updated {
             self.println(&format!("Move Data: Unchanged.{nl}"));
         }
+        self.progress.begin(Stage::Movesets);
         if settings.movesets_mod != MovesetsMod::Unchanged
             && settings.movesets_mod != MovesetsMod::MetronomeOnly
         {
@@ -273,6 +284,7 @@ impl Randomizer<'_> {
         } else {
             self.println(&format!("Pokemon Movesets: Unchanged.{nl}"));
         }
+        self.progress.begin(Stage::TmsAndTutors);
         if settings.movesets_mod != MovesetsMod::MetronomeOnly && settings.tms_mod == TmsMod::Random
         {
             self.handler.randomize_tm_moves(settings)?;
@@ -351,6 +363,7 @@ impl Randomizer<'_> {
                 self.log_tutor_compatibility();
             }
         }
+        self.progress.begin(Stage::Trainers);
         if settings.additional_regular_trainer_pokemon > 0
             || settings.additional_important_trainer_pokemon > 0
             || settings.additional_boss_trainer_pokemon > 0
@@ -433,6 +446,7 @@ impl Randomizer<'_> {
                 check_value = add_to_cv(check_value, &[tp.level, number]);
             }
         }
+        self.progress.begin(Stage::Statics);
         if self.handler.can_change_static_pokemon() {
             let old_statics = self.handler.get_static_pokemon();
             if settings.static_pokemon_mod != StaticPokemonMod::Unchanged {
@@ -465,6 +479,7 @@ impl Randomizer<'_> {
                 self.println(&format!("Totem Pokemon: Unchanged.{nl}"));
             }
         }
+        self.progress.begin(Stage::WildEncounters);
         if settings.use_minimum_catch_rate {
             self.handler.change_catch_rates(settings);
         }
@@ -502,6 +517,7 @@ impl Randomizer<'_> {
                 check_value = add_to_cv(check_value, &[encounter.level, number]);
             }
         }
+        self.progress.begin(Stage::Trades);
         let old_trades = self.handler.get_ingame_trades();
         if matches!(
             settings.in_game_trades_mod,
@@ -513,6 +529,7 @@ impl Randomizer<'_> {
         if trades_changed {
             self.log_trades(&old_trades);
         }
+        self.progress.begin(Stage::Items);
         match settings.field_items_mod {
             randomon_settings::FieldItemsMod::Shuffle => self.handler.shuffle_field_items()?,
             randomon_settings::FieldItemsMod::Random
@@ -542,8 +559,10 @@ impl Randomizer<'_> {
         self.handler.randomize_intro_pokemon()?;
         self.handler.write_check_value_to_rom(check_value);
         self.handler.core().deferred.check()?;
+        self.progress.begin(Stage::Saving);
         let rom = self.save_output(seed)?;
         self.handler.core().deferred.check()?;
+        self.progress.begin(Stage::WritingLog);
         let mut game_name = self.handler.rom_name();
         if self.handler.has_game_update_loaded() {
             game_name = format!(
@@ -571,15 +590,30 @@ impl Randomizer<'_> {
     }
 
     fn save_output(&mut self, seed: i64) -> Result<RomOutput> {
+        let progress = self.progress;
+        let report_saving = progress.stage_reporter(Stage::Saving);
         if self.save_as_directory {
-            return Ok(RomOutput::Directory(self.handler.save_rom_directory()?));
+            let files = self.handler.save_rom_directory()?;
+            return match self.output_path {
+                Some(root) => {
+                    write_directory_output_with_progress(root, &files, &report_saving).map_err(
+                        |error| RandomizationError::Io(format!("{}: {error}", root.display())),
+                    )?;
+                    Ok(RomOutput::Written(written_directory_root(root, &files)))
+                }
+                None => Ok(RomOutput::Directory(files)),
+            };
         }
         match self.output_path {
             Some(path) => {
-                self.handler.save_rom_to_path(path, seed)?;
+                self.handler
+                    .save_rom_to_path_with_progress(path, seed, &report_saving)?;
                 Ok(RomOutput::Written(path.to_path_buf()))
             }
-            None => Ok(RomOutput::File(self.handler.save_rom_with_seed(seed)?)),
+            None => {
+                report_saving(0.0, "Building the ROM image");
+                Ok(RomOutput::File(self.handler.save_rom_with_seed(seed)?))
+            }
         }
     }
 
@@ -1364,5 +1398,169 @@ impl Randomizer<'_> {
             names.push(trainer.current_name().to_owned());
         }
         Ok(names)
+    }
+}
+
+fn changes_moves(settings: &Settings, handler: &dyn RomHandler) -> bool {
+    settings.update_moves
+        || settings.randomize_move_powers
+        || settings.randomize_move_accuracies
+        || settings.randomize_move_pps
+        || settings.randomize_move_types
+        || (settings.randomize_move_category && handler.has_physical_special_split())
+}
+
+fn changes_tms_or_tutors(settings: &Settings, handler: &dyn RomHandler) -> bool {
+    let metronome = settings.movesets_mod == MovesetsMod::MetronomeOnly;
+    let tms = (!metronome && settings.tms_mod == TmsMod::Random)
+        || settings.tms_hms_compatibility_mod != TmsHmsCompatibilityMod::Unchanged
+        || settings.tm_level_up_move_sanity
+        || settings.full_hm_compat;
+    let tutors = handler.has_move_tutors()
+        && ((!metronome && settings.move_tutor_moves_mod == MoveTutorMovesMod::Random)
+            || settings.move_tutors_compatibility_mod != MoveTutorsCompatibilityMod::Unchanged
+            || settings.tutor_level_up_move_sanity);
+    tms || tutors
+}
+
+fn changes_trainers(settings: &Settings, handler: &dyn RomHandler) -> bool {
+    settings.additional_regular_trainer_pokemon > 0
+        || settings.additional_important_trainer_pokemon > 0
+        || settings.additional_boss_trainer_pokemon > 0
+        || settings.double_battle_mode
+        || settings.trainers_mod != TrainersMod::Unchanged
+        || settings.trainers_level_modified
+        || (settings.rival_carries_starter_throughout
+            && settings.starters_mod != StartersMod::Unchanged)
+        || settings.trainers_force_fully_evolved
+        || settings.better_trainer_movesets
+        || settings.randomize_held_items_for_boss_trainer_pokemon
+        || settings.randomize_held_items_for_important_trainer_pokemon
+        || settings.randomize_held_items_for_regular_trainer_pokemon
+        || (handler.can_change_trainer_text()
+            && (settings.randomize_trainer_class_names || settings.randomize_trainer_names))
+        || settings.movesets_mod == MovesetsMod::MetronomeOnly
+}
+
+fn changes_statics(settings: &Settings, handler: &dyn RomHandler) -> bool {
+    let statics = handler.can_change_static_pokemon()
+        && (settings.static_pokemon_mod != StaticPokemonMod::Unchanged
+            || settings.static_level_modified);
+    let totems = handler.generation_of_pokemon() == 7
+        && (settings.totem_pokemon_mod != randomon_settings::TotemPokemonMod::Unchanged
+            || settings.ally_pokemon_mod != randomon_settings::AllyPokemonMod::Unchanged
+            || settings.aura_mod != randomon_settings::AuraMod::Unchanged
+            || settings.randomize_totem_held_items
+            || settings.totem_levels_modified);
+    statics || totems
+}
+
+fn changes_items(settings: &Settings) -> bool {
+    settings.field_items_mod != randomon_settings::FieldItemsMod::Unchanged
+        || settings.shop_items_mod != ShopItemsMod::Unchanged
+        || settings.pickup_items_mod == PickupItemsMod::Random
+}
+
+pub(crate) fn planned_stages(settings: &Settings, handler: &dyn RomHandler) -> Vec<Stage> {
+    let is_gen1 = handler.generation_of_pokemon() == 1;
+    let candidates = [
+        (Stage::Moves, changes_moves(settings, handler)),
+        (
+            Stage::MiscTweaks,
+            settings.current_misc_tweaks != randomon_settings::NO_MISC_TWEAKS,
+        ),
+        (
+            Stage::Types,
+            settings.types_mod != TypesMod::Unchanged
+                || settings.update_base_stats
+                || settings.standardize_exp_curves
+                || settings.randomize_wild_pokemon_held_items,
+        ),
+        (
+            Stage::Evolutions,
+            settings.evolutions_mod != EvolutionsMod::Unchanged,
+        ),
+        (
+            Stage::BaseStats,
+            settings.base_statistics_mod != randomon_settings::BaseStatisticsMod::Unchanged,
+        ),
+        (
+            Stage::Abilities,
+            settings.abilities_mod == randomon_settings::AbilitiesMod::Randomize
+                || settings.change_impossible_evolutions
+                || settings.make_evolutions_easier
+                || settings.remove_time_based_evolutions,
+        ),
+        (
+            Stage::Starters,
+            settings.starters_mod != StartersMod::Unchanged
+                || (settings.randomize_starters_held_items && !is_gen1),
+        ),
+        (
+            Stage::Movesets,
+            (settings.movesets_mod != MovesetsMod::Unchanged
+                && settings.movesets_mod != MovesetsMod::MetronomeOnly)
+                || settings.reorder_damaging_moves,
+        ),
+        (
+            Stage::TmsAndTutors,
+            changes_tms_or_tutors(settings, handler),
+        ),
+        (Stage::Trainers, changes_trainers(settings, handler)),
+        (Stage::Statics, changes_statics(settings, handler)),
+        (
+            Stage::WildEncounters,
+            settings.wild_pokemon_mod != WildPokemonMod::Unchanged
+                || settings.wild_levels_modified
+                || settings.use_minimum_catch_rate,
+        ),
+        (
+            Stage::Trades,
+            matches!(
+                settings.in_game_trades_mod,
+                InGameTradesMod::RandomizeGiven | InGameTradesMod::RandomizeGivenAndRequested
+            ),
+        ),
+        (Stage::Items, changes_items(settings)),
+        (Stage::Saving, true),
+        (Stage::WritingLog, true),
+    ];
+    candidates
+        .into_iter()
+        .filter_map(|(stage, runs)| runs.then_some(stage))
+        .collect()
+}
+
+fn written_directory_root(root: &Path, files: &[OutputFile]) -> PathBuf {
+    match top_level_directories(files).as_slice() {
+        [only] => root.join(only),
+        _ => root.to_path_buf(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file(path: &str) -> OutputFile {
+        OutputFile {
+            path: path.to_owned(),
+            bytes: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_single_title_folder_is_reported_as_the_written_output() {
+        let root = Path::new("/out/Output");
+        let layered = [
+            file("0004000000055D00/romfs/"),
+            file("0004000000055D00/code.bin"),
+        ];
+        assert_eq!(
+            written_directory_root(root, &layered),
+            PathBuf::from("/out/Output/0004000000055D00")
+        );
+        let mixed = [file("a/one"), file("b/two")];
+        assert_eq!(written_directory_root(root, &mixed), root.to_path_buf());
     }
 }

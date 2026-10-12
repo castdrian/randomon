@@ -34,6 +34,28 @@ impl OutputLayout {
         }
     }
 
+    pub fn mod_folder(self, games: &[Game]) -> PathBuf {
+        match (self, games) {
+            (Self::Atmosphere, _) => PathBuf::from("atmosphere"),
+            (Self::Ryujinx, _) => PathBuf::from("mods"),
+            (Self::Yuzu, [game]) => PathBuf::from(game.title_id()),
+            (Self::Yuzu | Self::Emulator, _) => PathBuf::new(),
+        }
+    }
+
+    pub fn install_hint(self) -> &'static str {
+        match self {
+            Self::Atmosphere => "Copy the atmosphere folder to the root of your Switch's SD card.",
+            Self::Yuzu => {
+                "Copy this folder into your emulator's load folder (right-click the game, then Open Mod Data Location)."
+            }
+            Self::Ryujinx => {
+                "Copy the mods folder into your Ryujinx data folder (File, then Open Ryujinx Folder)."
+            }
+            Self::Emulator => "Point your emulator's mod loader at the romfs and exefs folders.",
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Atmosphere => "Atmosphere (Switch)",
@@ -117,8 +139,21 @@ impl RandomizedMod {
         layout: OutputLayout,
         games: &[Game],
     ) -> Result<Vec<PathBuf>> {
+        self.write_to_with_progress(directory, layout, games, &|_, _, _| {})
+    }
+
+    pub fn write_to_with_progress(
+        &self,
+        directory: &Path,
+        layout: OutputLayout,
+        games: &[Game],
+        on_progress: &dyn Fn(usize, usize, &Path),
+    ) -> Result<Vec<PathBuf>> {
         let mut written = Vec::new();
-        for file in self.files(layout, games) {
+        let files = self.files(layout, games);
+        let total = files.len();
+        for (index, file) in files.into_iter().enumerate() {
+            on_progress(index, total, &file.path);
             let path = directory.join(&file.path);
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)
@@ -129,6 +164,38 @@ impl RandomizedMod {
             written.push(path);
         }
         Ok(written)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModTarget {
+    pub directory: PathBuf,
+    pub layout: OutputLayout,
+    pub games: Vec<Game>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WrittenMod {
+    pub mod_folder: PathBuf,
+    pub log: PathBuf,
+    pub files: Vec<PathBuf>,
+}
+
+impl ModTarget {
+    pub fn mod_folder(&self) -> PathBuf {
+        self.directory.join(self.layout.mod_folder(&self.games))
+    }
+
+    pub fn log_path(&self) -> PathBuf {
+        self.directory.join(LOG_FILE_NAME)
+    }
+
+    pub fn written(&self, files: Vec<PathBuf>) -> WrittenMod {
+        WrittenMod {
+            mod_folder: self.mod_folder(),
+            log: self.log_path(),
+            files,
+        }
     }
 }
 

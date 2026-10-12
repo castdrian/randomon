@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use randomon_core::{
-    HandlerRegistry, RandomizationOptions, RomHandler, RomOutput, write_directory_output,
+    HandlerRegistry, ProgressReporter, RandomizationOptions, RomHandler, RomOutput,
+    write_directory_output,
 };
 use randomon_gen1::Gen1Factory;
 use randomon_gen2::Gen2Factory;
@@ -15,6 +16,7 @@ use randomon_java::RandomSource;
 use randomon_settings::Settings;
 
 use crate::capabilities::Capabilities;
+use crate::run::{ProgressSink, RunProgress};
 
 const LARGEST_INSPECTED_ROM: u64 = 64 * 1024 * 1024;
 
@@ -36,11 +38,18 @@ pub struct EngineGame {
     pub capabilities: Capabilities,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputKind {
+    RomFile,
+    LayeredFs,
+}
+
 #[derive(Debug, Clone)]
 pub struct RandomizedGame {
     pub output: PathBuf,
     pub log: Option<PathBuf>,
     pub check_value: i32,
+    pub kind: OutputKind,
 }
 
 pub fn registry() -> &'static HandlerRegistry {
@@ -190,18 +199,27 @@ pub async fn choose_output(
         .map(|handle| handle.path().to_path_buf())
 }
 
-pub async fn randomize(
-    game: EngineGame,
-    settings: Settings,
-    seed: i64,
-    output: PathBuf,
-    game_update: Option<PathBuf>,
+pub struct RandomizeRequest {
+    pub game: EngineGame,
+    pub settings: Settings,
+    pub seed: i64,
+    pub output: PathBuf,
+    pub game_update: Option<PathBuf>,
+}
+
+pub fn randomize_with_progress(
+    request: RandomizeRequest,
+    sink: ProgressSink,
 ) -> Result<RandomizedGame, String> {
-    tokio::task::spawn_blocking(move || {
-        guarded(|| randomize_blocking(&game, &settings, seed, output, game_update))?
-    })
-    .await
-    .map_err(|error| error.to_string())?
+    let reporter = ProgressReporter::new(move |progress| sink(RunProgress::from(progress)));
+    randomize_blocking(
+        &request.game,
+        &request.settings,
+        request.seed,
+        request.output,
+        request.game_update,
+        Some(reporter),
+    )
 }
 
 pub async fn game_update_version(
@@ -236,6 +254,7 @@ fn randomize_blocking(
     seed: i64,
     output: PathBuf,
     game_update: Option<PathBuf>,
+    progress: Option<ProgressReporter>,
 ) -> Result<RandomizedGame, String> {
     let game_update = game_update.filter(|_| is_3ds(game));
     let save_as_directory = game_update.is_some();
@@ -247,8 +266,9 @@ fn randomize_blocking(
     let options = RandomizationOptions {
         file_name: path_name(&game.path),
         save_as_directory,
-        output_path: (!save_as_directory).then(|| output.clone()),
+        output_path: Some(output.clone()),
         game_update,
+        progress,
         ..RandomizationOptions::default()
     };
     let result = match &game.source {
@@ -256,23 +276,30 @@ fn randomize_blocking(
         RomSource::File(path) => registry().randomize_file(path, settings, seed, &options),
     }
     .map_err(|error| error.to_string())?;
-    match &result.rom {
+    let written = match &result.rom {
         RomOutput::File(bytes) => {
-            std::fs::write(&output, bytes).map_err(|error| error.to_string())?
+            std::fs::write(&output, bytes).map_err(|error| error.to_string())?;
+            output.clone()
         }
         RomOutput::Directory(files) => {
-            write_directory_output(&output, files).map_err(|error| error.to_string())?
+            write_directory_output(&output, files).map_err(|error| error.to_string())?;
+            output.clone()
         }
-        RomOutput::Written(_) => {}
-    }
-    let log_path = log_path_for(&output);
+        RomOutput::Written(path) => path.clone(),
+    };
+    let log_path = log_path_for(&output, save_as_directory);
     let log = std::fs::write(&log_path, with_byte_order_mark(&result.log))
         .ok()
         .map(|()| log_path);
     Ok(RandomizedGame {
-        output,
+        output: written,
         log,
         check_value: result.check_value,
+        kind: if save_as_directory {
+            OutputKind::LayeredFs
+        } else {
+            OutputKind::RomFile
+        },
     })
 }
 
@@ -282,10 +309,16 @@ fn with_byte_order_mark(log: &str) -> Vec<u8> {
     contents
 }
 
-fn log_path_for(output: &Path) -> PathBuf {
-    let mut name = output.as_os_str().to_owned();
+fn log_path_for(output: &Path, save_as_directory: bool) -> PathBuf {
+    let mut name = output
+        .file_name()
+        .map(|name| name.to_owned())
+        .unwrap_or_else(|| "randomized".into());
     name.push(".log");
-    PathBuf::from(name)
+    if save_as_directory {
+        return output.join(name);
+    }
+    output.with_file_name(name)
 }
 
 #[cfg(test)]
@@ -311,13 +344,93 @@ mod tests {
             ..Settings::default()
         };
         let output = std::env::temp_dir().join("randomon-engine-test.gbc");
-        let done = randomize_blocking(&game, &settings, 123_456_789, output.clone(), None)
+        let done = randomize_blocking(&game, &settings, 123_456_789, output.clone(), None, None)
             .expect("randomizes");
         let written = std::fs::read(&done.output).expect("output written");
         assert_eq!(written.len() as u64, size);
         let log = std::fs::read(done.log.expect("log written")).expect("log readable");
         assert!(log.starts_with(&[0xEF, 0xBB, 0xBF]));
         assert!(String::from_utf8_lossy(&log).contains("Random Seed: 123456789"));
+    }
+
+    fn recording_sink() -> (ProgressSink, Arc<std::sync::Mutex<Vec<RunProgress>>>) {
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink_seen = Arc::clone(&seen);
+        let sink: ProgressSink = Arc::new(move |progress| {
+            sink_seen.lock().expect("progress lock").push(progress);
+        });
+        (sink, seen)
+    }
+
+    fn assert_progress_completes(seen: &[RunProgress]) {
+        assert!(seen.len() > 2, "progress was reported: {seen:?}");
+        for pair in seen.windows(2) {
+            assert!(pair[1].fraction >= pair[0].fraction, "{pair:?}");
+        }
+        let last = seen.last().expect("finished");
+        assert_eq!(last.percent(), 100);
+        assert_eq!(last.label, randomon_core::FINISHED_LABEL);
+    }
+
+    #[test]
+    fn randomizing_a_gen1_rom_streams_progress_in_order() {
+        let Some(rom) = rom_under_test() else {
+            return;
+        };
+        let size = std::fs::metadata(&rom).expect("rom metadata").len();
+        let game = inspect_checked(&rom, size)
+            .expect("rom loads")
+            .expect("engine recognises the rom");
+        let settings = Settings {
+            rom_name: Some(game.rom_name.clone()),
+            selected_exp_curve: Some(randomon_settings::ExpCurve::MediumFast),
+            wild_pokemon_mod: randomon_settings::WildPokemonMod::Random,
+            trainers_mod: randomon_settings::TrainersMod::Random,
+            starters_mod: randomon_settings::StartersMod::CompletelyRandom,
+            ..Settings::default()
+        };
+        let output = std::env::temp_dir().join("randomon-progress-test.gbc");
+        let (sink, seen) = recording_sink();
+        let done = randomize_with_progress(
+            RandomizeRequest {
+                game,
+                settings,
+                seed: 987_654_321,
+                output: output.clone(),
+                game_update: None,
+            },
+            sink,
+        )
+        .expect("randomizes");
+        assert_eq!(done.kind, OutputKind::RomFile);
+        assert_eq!(done.output, output);
+        let seen = seen.lock().expect("progress lock");
+        assert_progress_completes(&seen);
+        let stages: Vec<&str> = seen.iter().map(|progress| progress.label).collect();
+        let position = |label: &str| {
+            stages
+                .iter()
+                .position(|stage| *stage == label)
+                .unwrap_or_else(|| panic!("{label} reported"))
+        };
+        assert!(position("Picking starters") < position("Randomizing trainers"));
+        assert!(position("Randomizing trainers") < position("Randomizing wild Pokémon"));
+        assert!(position("Randomizing wild Pokémon") < position("Saving the game"));
+        assert!(position("Saving the game") < position("Writing the spoiler log"));
+        let _ = std::fs::remove_file(&output);
+        let _ = std::fs::remove_file(done.log.expect("log written"));
+    }
+
+    #[test]
+    fn logs_go_next_to_rom_files_and_inside_output_folders() {
+        assert_eq!(
+            log_path_for(Path::new("/games/Yellow (Randomized).gbc"), false),
+            PathBuf::from("/games/Yellow (Randomized).gbc.log")
+        );
+        assert_eq!(
+            log_path_for(Path::new("/games/Output"), true),
+            PathBuf::from("/games/Output/Output.log")
+        );
     }
 
     fn env_path(name: &str) -> Option<PathBuf> {
@@ -376,8 +489,26 @@ mod tests {
         let output = std::env::temp_dir().join("randomon-update-flow");
         let _ = std::fs::remove_dir_all(&output);
         std::fs::create_dir_all(&output).expect("output folder");
-        let done = randomize_blocking(&game, &settings, 42, output.clone(), Some(update.clone()))
-            .expect("randomizes with the update");
+        let (sink, seen) = recording_sink();
+        let reporter = ProgressReporter::new(move |progress| sink(RunProgress::from(progress)));
+        let done = randomize_blocking(
+            &game,
+            &settings,
+            42,
+            output.clone(),
+            Some(update.clone()),
+            Some(reporter),
+        )
+        .expect("randomizes with the update");
+        let seen = seen.lock().expect("progress lock").clone();
+        assert_progress_completes(&seen);
+        assert!(seen.iter().any(|progress| {
+            progress
+                .detail
+                .as_deref()
+                .is_some_and(|detail| detail.starts_with("Writing"))
+        }));
+        assert_eq!(done.kind, OutputKind::LayeredFs);
         let log_path = done.log.expect("log written");
         let log =
             String::from_utf8_lossy(&std::fs::read(&log_path).expect("log readable")).into_owned();
@@ -387,9 +518,12 @@ mod tests {
             .expect("output listing")
             .flatten()
             .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
             .collect();
         assert_eq!(titles.len(), 1, "one title folder");
         let title = &titles[0];
+        assert_eq!(&done.output, title, "the result points at the title folder");
+        assert_eq!(log_path.parent(), Some(output.as_path()));
         let romfs_files = files_under(&title.join("romfs"));
         assert!(!romfs_files.is_empty(), "changed romfs files are written");
         let written_code = std::fs::read(title.join("code.bin")).expect("code.bin written");

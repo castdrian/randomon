@@ -176,6 +176,12 @@ impl<R: Read + Seek> Ncch<R> {
         Ok(read_i32_le_at(&mut self.source, position)?.wrapping_mul(MEDIA_UNIT_SIZE as i32) as i64)
     }
 
+    pub fn content_size(&mut self) -> Result<u64> {
+        let position = self.at(0x104)?;
+        let media_units = read_i32_le_at(&mut self.source, position)? as u32;
+        Ok(u64::from(media_units) * MEDIA_UNIT_SIZE as u64)
+    }
+
     fn read_file_system(&mut self) -> Result<()> {
         self.exefs_offset = self.ncch_offset + self.media_units_at(0x1A0)?;
         self.romfs_offset = self.ncch_offset + self.media_units_at(0x1B0)?;

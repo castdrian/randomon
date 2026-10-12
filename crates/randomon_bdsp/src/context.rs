@@ -2,6 +2,7 @@ use crate::bundles::Bundles;
 use crate::data::GameData;
 use crate::error::{BdspError, Result};
 use crate::log::SpoilerLog;
+use crate::progress::Tracker;
 use crate::rng::SeededRng;
 use crate::settings::BdspSettings;
 
@@ -15,6 +16,7 @@ pub struct Context<'a> {
     pub exefs_patches: Vec<(String, Vec<u8>)>,
     pub learnsets_changed: bool,
     pub abilities_changed: bool,
+    pub tracker: &'a Tracker<'a>,
 }
 
 impl Context<'_> {
@@ -27,6 +29,10 @@ impl Context<'_> {
 
     pub fn chance(&mut self, probability: f64) -> bool {
         self.rng.random() < probability
+    }
+
+    pub fn detail(&self, done: usize, total: usize, describe: impl FnOnce() -> String) {
+        self.tracker.detail(done, total, describe);
     }
 
     pub fn reload_data(&mut self) -> Result<()> {

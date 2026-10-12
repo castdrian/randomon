@@ -1,5 +1,6 @@
 pub mod bytes;
 pub mod held_items;
+pub mod progress_writer;
 pub mod rom;
 pub mod rom_entry;
 pub mod strings;

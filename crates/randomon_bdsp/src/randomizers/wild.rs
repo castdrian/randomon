@@ -167,8 +167,12 @@ fn randomize_table(
         .field_mut("table")?
         .as_array_mut()
         .ok_or_else(|| data_error("encounter table is not an array"))?;
-    for area in areas.iter_mut() {
+    let area_count = areas.len();
+    for (done, area) in areas.iter_mut().enumerate() {
         let zone = area.int_field("zoneID")?;
+        context.detail(done, area_count, || {
+            format!("Zone {zone} · area {} of {area_count}", done + 1)
+        });
         let mut area_map = BTreeMap::new();
         for slots in slot_lists(area) {
             for slot in slots.iter_mut() {

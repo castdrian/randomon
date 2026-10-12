@@ -43,6 +43,17 @@ pub trait RomHandler {
             crate::error::RandomizationError::Io(format!("{}: {error}", path.display()))
         })
     }
+    fn save_rom_to_path_with_progress(
+        &mut self,
+        path: &Path,
+        seed: i64,
+        on_progress: &dyn Fn(f32, &str),
+    ) -> Result<()> {
+        on_progress(0.0, "Building the ROM image");
+        self.save_rom_to_path(path, seed)?;
+        on_progress(1.0, "ROM image written");
+        Ok(())
+    }
     fn save_rom_directory(&mut self) -> Result<Vec<OutputFile>> {
         Ok(Vec::new())
     }

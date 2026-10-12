@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 use randomon_data::{EvolutionUpdate, GameData, MegaEvolutionId, MoveLearnt, PokemonId, Type};
 use randomon_java::{
@@ -8,6 +9,7 @@ use randomon_java::{
 use randomon_log::LogWriter;
 
 use crate::error::{RandomizationError, Result};
+use crate::progress::ProgressPlan;
 
 pub type EvolutionUpdates = BTreeMap<(i32, i32), EvolutionUpdate>;
 
@@ -144,6 +146,7 @@ pub struct HandlerCore {
     pub data: GameData,
     pub engine: EngineState,
     pub deferred: DeferredError,
+    pub progress: Option<Arc<ProgressPlan>>,
 }
 
 impl HandlerCore {
@@ -152,6 +155,13 @@ impl HandlerCore {
             data: GameData::new(),
             engine: EngineState::new(random_source),
             deferred: DeferredError::default(),
+            progress: None,
+        }
+    }
+
+    pub fn report_detail(&self, done: usize, total: usize, describe: impl FnOnce() -> String) {
+        if let Some(progress) = &self.progress {
+            progress.detail(done, total, describe);
         }
     }
 }

@@ -1,3 +1,4 @@
+use crate::engine::detail;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use randomon_data::{EncounterSet, PokemonId, Type};
@@ -372,7 +373,8 @@ pub fn random_encounters<H: RomHandler + ?Sized>(
     if options.catch_em_all {
         let mut all_pokes = base_pool(handler, &options, true);
         remove_all(&mut all_pokes, &banned);
-        for &area_index in &order {
+        for (done, &area_index) in order.iter().enumerate() {
+            detail::area(handler, done, order.len(), &current[area_index]);
             let area = &mut current[area_index];
             let separate_pickable = !area.banned_pokemon.is_empty();
             let mut pickable_copy = if separate_pickable {
@@ -419,7 +421,8 @@ pub fn random_encounters<H: RomHandler + ?Sized>(
         }
     } else if options.type_themed {
         let mut cache: BTreeMap<Type, Vec<PokemonId>> = BTreeMap::new();
-        for &area_index in &order {
+        for (done, &area_index) in order.iter().enumerate() {
+            detail::area(handler, done, order.len(), &current[area_index]);
             let area = &mut current[area_index];
             let possible = find_themed_pool(handler, &options, &banned, &mut cache, area, 1)?;
             for index in 0..area.encounters.len() {
@@ -430,7 +433,8 @@ pub fn random_encounters<H: RomHandler + ?Sized>(
     } else if options.use_power_levels {
         let mut allowed = base_pool(handler, &options, false);
         remove_all(&mut allowed, &banned);
-        for &area_index in &order {
+        for (done, &area_index) in order.iter().enumerate() {
+            detail::area(handler, done, order.len(), &current[area_index]);
             let area = &mut current[area_index];
             let mut local_allowed = allowed.clone();
             if !area.banned_pokemon.is_empty() {
@@ -456,7 +460,8 @@ pub fn random_encounters<H: RomHandler + ?Sized>(
             }
         }
     } else {
-        for &area_index in &order {
+        for (done, &area_index) in order.iter().enumerate() {
+            detail::area(handler, done, order.len(), &current[area_index]);
             let area_snapshot = current[area_index].clone();
             for index in 0..area_snapshot.encounters.len() {
                 let picked = pick_entirely_random_pokemon(
@@ -521,7 +526,8 @@ fn area_1to1_encounters_impl<H: RomHandler + ?Sized>(
     if options.catch_em_all {
         let mut all_pokes = base_pool(handler, &options, true);
         remove_all(&mut all_pokes, &banned);
-        for &area_index in &order {
+        for (done, &area_index) in order.iter().enumerate() {
+            detail::area(handler, done, order.len(), &current[area_index]);
             let area = &mut current[area_index];
             let in_area = pokemon_in_area(area);
             let mut area_map: BTreeMap<PokemonId, PokemonId> = BTreeMap::new();
@@ -562,7 +568,8 @@ fn area_1to1_encounters_impl<H: RomHandler + ?Sized>(
         }
     } else if options.type_themed {
         let mut cache: BTreeMap<Type, Vec<PokemonId>> = BTreeMap::new();
-        for &area_index in &order {
+        for (done, &area_index) in order.iter().enumerate() {
+            detail::area(handler, done, order.len(), &current[area_index]);
             let area = &mut current[area_index];
             let in_area = pokemon_in_area(area);
             let mut possible =
@@ -578,7 +585,8 @@ fn area_1to1_encounters_impl<H: RomHandler + ?Sized>(
     } else if options.use_power_levels {
         let mut allowed = base_pool(handler, &options, false);
         remove_all(&mut allowed, &banned);
-        for &area_index in &order {
+        for (done, &area_index) in order.iter().enumerate() {
+            detail::area(handler, done, order.len(), &current[area_index]);
             let area = &mut current[area_index];
             let in_area = pokemon_in_area(area);
             let mut area_map: BTreeMap<PokemonId, PokemonId> = BTreeMap::new();
@@ -601,7 +609,8 @@ fn area_1to1_encounters_impl<H: RomHandler + ?Sized>(
             apply_area_map(handler, area, &area_map, &[])?;
         }
     } else {
-        for &area_index in &order {
+        for (done, &area_index) in order.iter().enumerate() {
+            detail::area(handler, done, order.len(), &current[area_index]);
             let area_snapshot = current[area_index].clone();
             let in_area = pokemon_in_area(&area_snapshot);
             let mut area_map: BTreeMap<PokemonId, PokemonId> = BTreeMap::new();
@@ -672,7 +681,9 @@ pub fn game_1to1_encounters<H: RomHandler + ?Sized>(
         translate.entry(pokemon).or_insert(pokemon);
     }
     let mut current = handler.get_encounters(use_time_of_day);
-    for area in &mut current {
+    let area_count = current.len();
+    for (done, area) in current.iter_mut().enumerate() {
+        detail::area(handler, done, area_count, area);
         for index in 0..area.encounters.len() {
             let mapped = *translate
                 .get(&area.encounters[index].pokemon)

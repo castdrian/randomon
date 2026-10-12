@@ -3,6 +3,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufReader, Cursor, Read, Seek};
 use std::path::Path;
 
+use crate::progress_writer::ProgressWriter;
 use randomon_core::{OutputFile, RandomizationError, Result};
 use randomon_formats::FormatError;
 use randomon_formats::ctr::crypto::CryptoError;
@@ -231,6 +232,17 @@ impl CtrRom {
     }
 
     pub fn save_as_ncch(&mut self, path: &Path, game_acronym: &str, seed: i64) -> Result<()> {
+        self.save_as_ncch_with_progress(path, game_acronym, seed, &|_, _| {})
+    }
+
+    pub fn save_as_ncch_with_progress(
+        &mut self,
+        path: &Path,
+        game_acronym: &str,
+        seed: i64,
+        on_progress: &dyn Fn(f32, &str),
+    ) -> Result<()> {
+        let expected = self.base.content_size().unwrap_or(0);
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -238,9 +250,11 @@ impl CtrRom {
             .truncate(true)
             .open(path)
             .map_err(|error| io_error(path, error))?;
+        let tracked = ProgressWriter::new(file, expected, on_progress);
         self.base
-            .save_as_ncch(file, game_acronym, seed)
+            .save_as_ncch(tracked, game_acronym, seed)
             .map_err(format_error)?;
+        on_progress(1.0, "Game image written");
         Ok(())
     }
 

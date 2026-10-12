@@ -523,6 +523,58 @@ fn tinted_note(color: Color) -> container::Style {
     }
 }
 
+pub fn progress_track(theme: &Theme) -> iced::widget::progress_bar::Style {
+    let palette = theme.extended_palette();
+    iced::widget::progress_bar::Style {
+        background: Background::Color(palette.background.weak.color),
+        bar: Background::Color(palette.primary.base.color),
+        border: Border {
+            radius: 999.0.into(),
+            ..Border::default()
+        },
+    }
+}
+
+pub fn calm_error_note(theme: &Theme) -> container::Style {
+    let palette = theme.extended_palette();
+    container::Style {
+        text_color: Some(palette.background.base.text),
+        background: Some(Background::Color(Color {
+            a: 0.08,
+            ..palette.danger.base.color
+        })),
+        border: Border {
+            color: Color {
+                a: 0.3,
+                ..palette.danger.base.color
+            },
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+pub fn success_badge(theme: &Theme) -> container::Style {
+    round_badge(theme.extended_palette().success.base.color)
+}
+
+pub fn danger_badge(theme: &Theme) -> container::Style {
+    round_badge(theme.extended_palette().danger.base.color)
+}
+
+fn round_badge(color: Color) -> container::Style {
+    container::Style {
+        text_color: Some(color),
+        background: Some(Background::Color(Color { a: 0.14, ..color })),
+        border: Border {
+            radius: 999.0.into(),
+            ..Border::default()
+        },
+        ..container::Style::default()
+    }
+}
+
 pub fn update_chip(theme: &Theme) -> container::Style {
     let palette = theme.extended_palette();
     container::Style {

@@ -10,6 +10,7 @@ use crate::rom;
 use crate::section::Section;
 use crate::support;
 use crate::ui::options_view::{OptionsView, SEMIBOLD};
+use crate::ui::run_card;
 use crate::ui::style::{self, SPACE_1, SPACE_2, SPACE_3};
 use crate::ui::{action_bar, dialogs};
 
@@ -30,6 +31,9 @@ impl Randomon {
     }
 
     fn overlay(&self) -> Option<Element<'_, Message>> {
+        if let Some(card) = run_card::overlay(&self.run) {
+            return Some(card.map(Message::Card));
+        }
         if let Some(dialog) = &self.dialog {
             let context = dialogs::DialogContext {
                 custom_names: &self.custom_names,
@@ -42,6 +46,9 @@ impl Randomon {
             ));
         }
         let session = self.bdsp.as_ref()?;
+        if let Some(card) = session.run_overlay() {
+            return Some(card.map(Message::Bdsp));
+        }
         let dialog = session.dialog()?;
         Some(dialogs::modal(
             dialog.map(Message::Bdsp),
@@ -393,8 +400,9 @@ impl Randomon {
     }
 
     fn action_bar(&self) -> Element<'_, Message> {
-        let can_randomize = self.rom.is_some() && !self.randomizing && !self.update_is_checking();
-        let randomize = button(text(if self.randomizing {
+        let can_randomize =
+            self.rom.is_some() && !self.run.is_running() && !self.update_is_checking();
+        let randomize = button(text(if self.run.is_running() {
             "Randomizing…"
         } else {
             "Randomize"

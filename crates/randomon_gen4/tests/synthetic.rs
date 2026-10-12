@@ -353,3 +353,39 @@ fn corrupted_game_data_never_panics() {
     }
     assert!(loaded > 0, "no corrupted ROM randomized at all");
 }
+
+#[test]
+fn progress_moves_forward_and_finishes_for_an_nds_rom() {
+    use std::sync::{Arc, Mutex};
+
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&seen);
+    let options = RandomizationOptions {
+        progress: Some(randomon_core::ProgressReporter::new(move |progress| {
+            sink.lock().expect("progress lock").push(progress);
+        })),
+        ..options()
+    };
+    let rom = build_rom(entry("CPUE", 0), Quirks::default());
+    let settings = randomon_settings::Settings {
+        wild_pokemon_mod: randomon_settings::WildPokemonMod::Random,
+        trainers_mod: randomon_settings::TrainersMod::Random,
+        ..grid::base("synthetic")
+    };
+    HandlerRegistry::new()
+        .with(Gen4Factory)
+        .randomize(&rom, &settings, 42, &options)
+        .expect("randomizes");
+    let seen = seen.lock().expect("progress lock");
+    assert!(seen.len() > 2);
+    for pair in seen.windows(2) {
+        assert!(pair[1].fraction() >= pair[0].fraction(), "{pair:?}");
+    }
+    assert!(
+        seen.iter()
+            .any(|progress| progress.label == "Randomizing wild Pokémon")
+    );
+    let last = seen.last().expect("finished");
+    assert!(last.is_finished());
+    assert_eq!(last.percent(), 100);
+}

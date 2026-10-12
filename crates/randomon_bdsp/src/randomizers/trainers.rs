@@ -315,7 +315,11 @@ pub fn randomize_trainers(context: &mut Context<'_>) -> Result<()> {
         .as_array_mut()
         .ok_or_else(|| data_error("TrainerPoke is not an array"))?;
     let mut lines = Vec::new();
-    for trainer in trainers.iter_mut() {
+    let trainer_count = trainers.len();
+    for (done, trainer) in trainers.iter_mut().enumerate() {
+        context.detail(done, trainer_count, || {
+            format!("Trainer {} of {trainer_count}", done + 1)
+        });
         if let Some(line) = edit_trainer(context, &plan, trainer)? {
             lines.push(line);
         }

@@ -1,11 +1,14 @@
 mod bdsp;
 
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Mutex;
 
 use clap::Parser;
 use randomon_core::{
-    HandlerRegistry, RandomizationError, RandomizationOptions, RomOutput, write_directory_output,
+    HandlerRegistry, ProgressReporter, RandomizationError, RandomizationOptions, RomOutput,
+    write_directory_output,
 };
 use randomon_gen1::Gen1Factory;
 use randomon_gen2::Gen2Factory;
@@ -196,6 +199,7 @@ fn run(arguments: Arguments) -> Result<(), String> {
         handler_logging: false,
         output_path: (!save_as_directory).then(|| output.clone()),
         game_update,
+        progress: stage_lines_on_terminal(),
         ..RandomizationOptions::default()
     };
     let result = registry
@@ -208,7 +212,7 @@ fn run(arguments: Arguments) -> Result<(), String> {
     }
     write_output(&output, &result.rom)?;
     if arguments.save_log {
-        write_log(&output, &result.log);
+        write_log(&log_path_for(&output, save_as_directory), &result.log);
     }
     Ok(())
 }
@@ -263,12 +267,38 @@ fn write_output(output: &Path, rom: &RomOutput) -> Result<(), String> {
     }
 }
 
-fn write_log(output: &Path, log: &str) {
-    let mut path = output.as_os_str().to_owned();
-    path.push(".log");
+fn stage_lines_on_terminal() -> Option<ProgressReporter> {
+    if !std::io::stderr().is_terminal() {
+        return None;
+    }
+    let last_label = Mutex::new("");
+    Some(ProgressReporter::new(move |progress| {
+        let Ok(mut last) = last_label.lock() else {
+            return;
+        };
+        if *last != progress.label {
+            *last = progress.label;
+            eprintln!("[{:>3}%] {}", progress.percent(), progress.label);
+        }
+    }))
+}
+
+fn log_path_for(output: &Path, save_as_directory: bool) -> PathBuf {
+    let mut name = output
+        .file_name()
+        .map(|name| name.to_owned())
+        .unwrap_or_else(|| "randomized".into());
+    name.push(".log");
+    if save_as_directory {
+        return output.join(name);
+    }
+    output.with_file_name(name)
+}
+
+fn write_log(path: &Path, log: &str) {
     let mut contents = UTF8_BYTE_ORDER_MARK.to_vec();
     contents.extend_from_slice(log.as_bytes());
-    if std::fs::write(PathBuf::from(path), contents).is_err() {
+    if std::fs::write(path, contents).is_err() {
         eprintln!("WARNING: Could not write log.");
     }
 }
@@ -282,6 +312,18 @@ fn file_name_of(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn logs_sit_next_to_rom_files_and_inside_output_folders() {
+        assert_eq!(
+            log_path_for(Path::new("/out/yellow.gbc"), false),
+            PathBuf::from("/out/yellow.gbc.log")
+        );
+        assert_eq!(
+            log_path_for(Path::new("/out/Output"), true),
+            PathBuf::from("/out/Output/Output.log")
+        );
+    }
 
     #[test]
     fn appends_the_default_extension() {
