@@ -21,7 +21,7 @@ env:
         -p @semantic-release/changelog@7
         -p @semantic-release/exec@7
         -p @semantic-release/git@11
-        -p conventional-changelog-conventionalcommits@10
+        -p conventional-changelog-conventionalcommits@9
         semantic-release
 
 jobs:
