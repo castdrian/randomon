@@ -1,3 +1,9 @@
+## [1.3.1](https://github.com/castdrian/randomon/compare/v1.3.0...v1.3.1) (2026-10-19)
+
+### Bug Fixes
+
+* write Switch mods for the loaded game only, without a mod name folder, and hide options a game doesn't have ([141fc1f](https://github.com/castdrian/randomon/commit/141fc1f13a2ead36c37855bf5f7c6a97d31a00eb))
+
 ## [1.3.0](https://github.com/castdrian/randomon/compare/v1.2.2...v1.3.0) (2026-10-19)
 
 ### Features
