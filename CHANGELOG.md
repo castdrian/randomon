@@ -1,3 +1,9 @@
+## [1.3.0](https://github.com/castdrian/randomon/compare/v1.2.2...v1.3.0) (2026-10-19)
+
+### Features
+
+* randomize Brilliant Diamond, Shining Pearl, Sword and Shield with the full option catalog ([5e26b58](https://github.com/castdrian/randomon/commit/5e26b58da157262a330eb4bfc864efd889f5cfb3))
+
 ## [1.2.2](https://github.com/castdrian/randomon/compare/v1.2.1...v1.2.2) (2026-10-19)
 
 ### Bug Fixes
