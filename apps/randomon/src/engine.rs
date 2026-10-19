@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
+use randomon_bdsp::BdspFactory;
 use randomon_core::{
-    HandlerRegistry, ProgressReporter, RandomizationOptions, RomHandler, RomOutput,
+    HandlerRegistry, ProgressReporter, RandomizationOptions, RomHandler, RomOutput, SwitchLayout,
     write_directory_output,
 };
 use randomon_gen1::Gen1Factory;
@@ -14,6 +15,7 @@ use randomon_gen6::Gen6Factory;
 use randomon_gen7::Gen7Factory;
 use randomon_java::RandomSource;
 use randomon_settings::Settings;
+use randomon_swsh::SwshFactory;
 
 use crate::capabilities::Capabilities;
 use crate::run::{ProgressSink, RunProgress};
@@ -40,6 +42,7 @@ pub struct EngineGame {
 pub enum OutputKind {
     RomFile,
     LayeredFs,
+    SwitchMod(SwitchLayout),
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +64,8 @@ pub fn registry() -> &'static HandlerRegistry {
             .with(Gen5Factory)
             .with(Gen6Factory)
             .with(Gen7Factory)
+            .with(BdspFactory)
+            .with(SwshFactory)
     })
 }
 
@@ -144,6 +149,10 @@ fn is_3ds(game: &EngineGame) -> bool {
     matches!(game.generation, 6 | 7)
 }
 
+pub fn is_switch(game: &EngineGame) -> bool {
+    game.generation >= 8
+}
+
 fn capabilities_of(handler: &dyn RomHandler) -> Capabilities {
     let generation = handler.generation_of_pokemon();
     Capabilities {
@@ -175,6 +184,13 @@ pub async fn choose_output(
     source_file_name: String,
     game_update: Option<PathBuf>,
 ) -> Option<PathBuf> {
+    if is_switch(&game) {
+        return rfd::AsyncFileDialog::new()
+            .set_title("Choose a folder for the randomized mod")
+            .pick_folder()
+            .await
+            .map(|handle| handle.path().to_path_buf());
+    }
     if is_3ds(&game) && game_update.is_some() {
         return rfd::AsyncFileDialog::new()
             .set_title("Choose a folder for the LayeredFS output")
@@ -201,6 +217,7 @@ pub struct RandomizeRequest {
     pub seed: i64,
     pub output: PathBuf,
     pub game_update: Option<PathBuf>,
+    pub switch_layout: SwitchLayout,
 }
 
 pub fn randomize_with_progress(
@@ -214,6 +231,7 @@ pub fn randomize_with_progress(
         request.seed,
         request.output,
         request.game_update,
+        request.switch_layout,
         Some(reporter),
     )
 }
@@ -250,10 +268,12 @@ fn randomize_blocking(
     seed: i64,
     output: PathBuf,
     game_update: Option<PathBuf>,
+    switch_layout: SwitchLayout,
     progress: Option<ProgressReporter>,
 ) -> Result<RandomizedGame, String> {
     let game_update = game_update.filter(|_| is_3ds(game));
-    let save_as_directory = game_update.is_some();
+    let switch = is_switch(game);
+    let save_as_directory = game_update.is_some() || switch;
     if !save_as_directory && is_3ds(game) && output == game.path {
         return Err(
             "You cannot overwrite the original ROM when you save a DS randomization.".to_owned(),
@@ -265,6 +285,7 @@ fn randomize_blocking(
         output_path: Some(output.clone()),
         game_update,
         progress,
+        switch_layout,
         ..RandomizationOptions::default()
     };
     let result = match &game.source {
@@ -291,7 +312,9 @@ fn randomize_blocking(
         output: written,
         log,
         check_value: result.check_value,
-        kind: if save_as_directory {
+        kind: if switch {
+            OutputKind::SwitchMod(switch_layout)
+        } else if save_as_directory {
             OutputKind::LayeredFs
         } else {
             OutputKind::RomFile
@@ -340,8 +363,16 @@ mod tests {
             ..Settings::default()
         };
         let output = std::env::temp_dir().join("randomon-engine-test.gbc");
-        let done = randomize_blocking(&game, &settings, 123_456_789, output.clone(), None, None)
-            .expect("randomizes");
+        let done = randomize_blocking(
+            &game,
+            &settings,
+            123_456_789,
+            output.clone(),
+            None,
+            SwitchLayout::default(),
+            None,
+        )
+        .expect("randomizes");
         let written = std::fs::read(&done.output).expect("output written");
         assert_eq!(written.len() as u64, size);
         let log = std::fs::read(done.log.expect("log written")).expect("log readable");
@@ -394,6 +425,7 @@ mod tests {
                 seed: 987_654_321,
                 output: output.clone(),
                 game_update: None,
+                switch_layout: SwitchLayout::default(),
             },
             sink,
         )
@@ -493,6 +525,7 @@ mod tests {
             42,
             output.clone(),
             Some(update.clone()),
+            SwitchLayout::default(),
             Some(reporter),
         )
         .expect("randomizes with the update");

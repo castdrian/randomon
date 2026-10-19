@@ -11,6 +11,7 @@ use randomon_settings::{MiscTweak, Settings};
 use crate::engine;
 use crate::error::Result;
 use crate::state::{EvolutionUpdates, HandlerCore};
+use crate::switch::SwitchLayout;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrainerNameMode {
@@ -57,6 +58,10 @@ pub trait RomHandler {
     fn save_rom_directory(&mut self) -> Result<Vec<OutputFile>> {
         Ok(Vec::new())
     }
+    fn is_switch_game(&self) -> bool {
+        false
+    }
+    fn set_switch_layout(&mut self, _layout: SwitchLayout) {}
     fn load_game_update(&mut self, path: &Path) -> Result<()> {
         Err(crate::error::RandomizationError::UnsupportedRom(
             path.display().to_string(),

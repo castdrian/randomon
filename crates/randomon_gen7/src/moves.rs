@@ -103,7 +103,7 @@ fn stat_changes(data: &[u8]) -> Result<[MoveStatChange; 3]> {
     Ok(changes)
 }
 
-pub(crate) fn parse_move(number: i32, name: String, data: &[u8]) -> Result<Move> {
+pub fn parse_move(number: i32, name: String, data: &[u8]) -> Result<Move> {
     let category = constants::MOVE_CATEGORY_INDICES
         .get(data[2] as usize)
         .copied()

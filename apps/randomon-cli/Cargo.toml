@@ -24,6 +24,7 @@ randomon_gen7.workspace = true
 randomon_java.workspace = true
 randomon_settings.workspace = true
 randomon_bdsp.workspace = true
+randomon_swsh.workspace = true
 
 
 

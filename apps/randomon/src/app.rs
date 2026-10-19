@@ -7,9 +7,9 @@ use std::path::PathBuf;
 use iced::theme::Mode;
 use iced::widget::operation::{self, RelativeOffset};
 use iced::{Subscription, Task, Theme, event, window};
+use randomon_core::SwitchLayout;
 use randomon_settings::{CustomNames, Settings};
 
-use crate::bdsp::{self, BdspMessage, BdspSession};
 use crate::capabilities::Capabilities;
 use crate::debug::DebugBoot;
 use crate::engine;
@@ -62,7 +62,7 @@ struct Randomon {
     custom_names: CustomNames,
     status: Option<Status>,
     run: RunState,
-    bdsp: Option<BdspSession>,
+    switch_layout: SwitchLayout,
     updater: Updater,
 }
 
@@ -112,7 +112,7 @@ enum Message {
     OpenLink(&'static str),
     ChooseKeysFile,
     KeysFilePicked(Option<PathBuf>),
-    Bdsp(BdspMessage),
+    SwitchLayoutChosen(SwitchLayout),
     Updater(UpdaterMessage),
 }
 
@@ -137,7 +137,7 @@ impl Randomon {
             custom_names: CustomNames::default_names(),
             status: None,
             run: RunState::Idle,
-            bdsp: None,
+            switch_layout: SwitchLayout::default(),
             updater: Updater::new(),
         };
         state.settings_changed();
@@ -171,7 +171,6 @@ impl Randomon {
 
     fn apply_debug_boot(&mut self, boot: DebugBoot) {
         let run_preview = boot.run_preview();
-        let bdsp_run_preview = boot.bdsp_run_preview();
         self.generation_override = boot.generation;
         if let Some(path) = boot.rom {
             self.load_game(path);
@@ -207,14 +206,6 @@ impl Randomon {
             Some("remove-update") => Some(Dialog::ConfirmRemoveUpdate),
             _ => None,
         };
-        if let Some(session) = &mut self.bdsp {
-            if boot.dialog.as_deref() == Some("bdsp-settings") {
-                let _ = session.update(BdspMessage::OpenSharing);
-            }
-            if let Some(run) = bdsp_run_preview {
-                session.preview_run(run);
-            }
-        }
     }
 
     fn theme(&self) -> Theme {
@@ -311,20 +302,12 @@ impl Randomon {
             }
             Message::KeysFilePicked(None) => {}
             Message::KeysFilePicked(Some(path)) => return self.use_keys_file(path),
-            Message::Bdsp(BdspMessage::Close) => self.bdsp = None,
-            Message::Bdsp(BdspMessage::OpenGame) => {
-                return Task::perform(game_picker::pick_game(), Message::GamePicked);
-            }
+            Message::SwitchLayoutChosen(layout) => self.switch_layout = layout,
             Message::Updater(message) => {
                 return self
                     .updater
                     .update(message, self.is_randomizing())
                     .map(Message::Updater);
-            }
-            Message::Bdsp(message) => {
-                if let Some(session) = &mut self.bdsp {
-                    return session.update(message).map(Message::Bdsp);
-                }
             }
         }
         Task::none()
@@ -453,7 +436,7 @@ impl Randomon {
     }
 
     fn is_randomizing(&self) -> bool {
-        self.run.is_running() || self.bdsp.as_ref().is_some_and(BdspSession::is_running)
+        self.run.is_running()
     }
 
     fn start_randomization(&mut self) -> Task<Message> {
@@ -492,6 +475,7 @@ impl Randomon {
             seed,
             output,
             game_update: self.update_path(),
+            switch_layout: self.switch_layout,
         };
         Task::run(
             run::in_background(move |sink| engine::randomize_with_progress(request, sink)),
@@ -506,8 +490,11 @@ impl Randomon {
                 .settings
                 .race_mode
                 .then(|| run::race_code(done.check_value)),
-            install_hint: (done.kind == engine::OutputKind::LayeredFs)
-                .then(|| LAYERED_FS_HINT.to_owned()),
+            install_hint: match done.kind {
+                engine::OutputKind::LayeredFs => Some(LAYERED_FS_HINT.to_owned()),
+                engine::OutputKind::SwitchMod(layout) => Some(layout.install_hint().to_owned()),
+                engine::OutputKind::RomFile => None,
+            },
             output: done.output,
             log: done.log,
         }
@@ -541,19 +528,6 @@ impl Randomon {
     }
 
     fn load_game(&mut self, path: PathBuf) {
-        if rom::Platform::from_path(&path).is_none()
-            && let Some(romfs) = bdsp::romfs_root_containing(&path)
-        {
-            self.dialog = None;
-            self.bdsp = Some(BdspSession::open(romfs));
-            return;
-        }
-        if path.is_dir() {
-            self.status = Some(Status::Error(
-                "That folder isn't a supported game or romfs folder.".to_owned(),
-            ));
-            return;
-        }
         match rom::inspect(path.clone()) {
             Ok(loaded) => self.loaded_rom(loaded),
             Err(message) => self.status = Some(error_status(message, KeysRetry::Game(path))),
@@ -588,7 +562,6 @@ impl Randomon {
             )));
             return;
         }
-        self.bdsp = None;
         self.game_update = None;
         self.caps = match (&loaded.engine, self.generation_override) {
             (Some(game), _) => game.capabilities,
@@ -656,7 +629,7 @@ impl Randomon {
     fn limit_restrictions_to_game(&mut self) {
         if let (Some(restrictions), Some(generation)) = (
             self.settings.current_restrictions.as_mut(),
-            self.caps.generation,
+            self.caps.pokemon_generation(),
         ) {
             restrictions.limit_to_gen(generation);
         }
@@ -888,26 +861,12 @@ mod tests {
     }
 
     #[test]
-    fn a_file_inside_a_bdsp_romfs_opens_the_bdsp_panel() {
-        let romfs = std::env::temp_dir().join("randomon-app-tests/bdsp-pick/romfs");
-        let data = romfs.join("Data/StreamingAssets/AssetAssistant");
-        for bundle in [
-            "Dpr/masterdatas",
-            "Pml/personal_masterdatas",
-            "Dpr/scriptableobjects/gamesettings",
-            "Dpr/ev_script",
-            "UnderGround/data/ugdata",
-            "Message/english",
-        ] {
-            let path = data.join(bundle);
-            std::fs::create_dir_all(path.parent().expect("parent")).expect("bundle dir");
-            std::fs::write(&path, []).expect("bundle file");
-        }
+    fn a_folder_that_is_not_a_romfs_is_rejected() {
+        let folder = std::env::temp_dir().join("randomon-app-tests/not-a-romfs");
+        std::fs::create_dir_all(&folder).expect("folder");
         let mut app = app_with_rom("gba");
-        app.load_game(data.join("Dpr/masterdatas"));
-        assert!(app.bdsp.is_some());
-        app.load_game(std::env::temp_dir().join("randomon-app-tests/Test Game.gba"));
-        assert!(app.bdsp.is_none());
+        app.load_game(folder);
+        assert!(matches!(app.status, Some(Status::Error(_))));
     }
 
     #[test]

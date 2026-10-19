@@ -68,31 +68,6 @@ impl DebugBoot {
             _ => None,
         }
     }
-
-    pub fn bdsp_run_preview(&self) -> Option<RunState> {
-        match self.dialog.as_deref()? {
-            "bdsp-progress" => Some(RunState::Running(RunProgress {
-                fraction: PREVIEW_PROGRESS,
-                label: "Randomizing trainers",
-                detail: Some("Trainer 214 of 856".to_owned()),
-            })),
-            "bdsp-result" => {
-                let directory = self.preview_output("BDSP Mod");
-                Some(RunState::Done(Finished {
-                    headline: "Your randomized mod is ready",
-                    output: directory.join("atmosphere"),
-                    log: Some(directory.join(randomon_bdsp::LOG_FILE_NAME)),
-                    race_code: None,
-                    install_hint: Some(
-                        randomon_bdsp::OutputLayout::Atmosphere
-                            .install_hint()
-                            .to_owned(),
-                    ),
-                }))
-            }
-            _ => None,
-        }
-    }
 }
 
 fn variable(name: &str) -> Option<String> {

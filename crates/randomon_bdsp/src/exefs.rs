@@ -1,3 +1,5 @@
+use randomon_core::Ips32Patch;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Game {
     BrilliantDiamond,
@@ -146,50 +148,6 @@ const THIRD_STARTER_DELTA: u32 = 0x4;
 pub fn movz_w(register: u8, immediate: u16) -> [u8; 4] {
     let instruction = 0x5280_0000u32 | (u32::from(immediate) << 5) | u32::from(register & 0x1f);
     instruction.to_le_bytes()
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Ips32Patch {
-    records: Vec<(u32, Vec<u8>)>,
-}
-
-impl Ips32Patch {
-    pub fn add(&mut self, offset: u32, bytes: &[u8]) {
-        self.records.push((offset, bytes.to_vec()));
-    }
-
-    pub fn records(&self) -> &[(u32, Vec<u8>)] {
-        &self.records
-    }
-
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut out = b"IPS32".to_vec();
-        for (offset, bytes) in &self.records {
-            out.extend_from_slice(&offset.to_be_bytes());
-            out.extend_from_slice(&(bytes.len() as u16).to_be_bytes());
-            out.extend_from_slice(bytes);
-        }
-        out.extend_from_slice(b"EEOF");
-        out
-    }
-
-    pub fn parse(data: &[u8]) -> Option<Self> {
-        let mut rest = data.strip_prefix(b"IPS32")?;
-        let mut patch = Self::default();
-        loop {
-            if rest == b"EEOF" {
-                return Some(patch);
-            }
-            if rest.len() < 6 {
-                return None;
-            }
-            let offset = u32::from_be_bytes([rest[0], rest[1], rest[2], rest[3]]);
-            let length = usize::from(u16::from_be_bytes([rest[4], rest[5]]));
-            let bytes = rest.get(6..6 + length)?;
-            patch.add(offset, bytes);
-            rest = &rest[6 + length..];
-        }
-    }
 }
 
 pub fn starter_patch(offsets: &StarterOffsets, starters: [u16; 3]) -> Ips32Patch {

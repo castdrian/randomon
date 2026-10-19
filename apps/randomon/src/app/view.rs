@@ -1,10 +1,11 @@
 use iced::widget::{
-    Column, button, column, container, responsive, row, scrollable, space, stack, text, text_input,
+    Column, button, column, container, pick_list, responsive, row, scrollable, space, stack, text,
+    text_input,
 };
 use iced::{Alignment, Element, Fill};
+use randomon_core::SwitchLayout;
 
 use super::{Message, OPTIONS_SCROLL_ID, Randomon, Status};
-use crate::bdsp::BdspMessage;
 use crate::options::{self, CardMatch, catalog};
 use crate::rom;
 use crate::section::Section;
@@ -16,13 +17,11 @@ use crate::ui::{action_bar, dialogs};
 
 impl Randomon {
     pub(super) fn view(&self) -> Element<'_, Message> {
-        let content: Element<'_, Message> = match &self.bdsp {
-            Some(session) => session.view(self.compact()).map(Message::Bdsp),
-            None => column![self.rom_card(), self.section_body(), self.action_bar()]
+        let content: Element<'_, Message> =
+            column![self.rom_card(), self.section_body(), self.action_bar()]
                 .width(Fill)
                 .height(Fill)
-                .into(),
-        };
+                .into();
         let base: Element<'_, Message> = row![self.sidebar(), content].height(Fill).into();
         match self.overlay() {
             Some(overlay) => stack![base, overlay].into(),
@@ -45,15 +44,7 @@ impl Randomon {
                 Message::Dialog(dialogs::DialogMessage::Close),
             ));
         }
-        let session = self.bdsp.as_ref()?;
-        if let Some(card) = session.run_overlay() {
-            return Some(card.map(Message::Bdsp));
-        }
-        let dialog = session.dialog()?;
-        Some(dialogs::modal(
-            dialog.map(Message::Bdsp),
-            Message::Bdsp(BdspMessage::CloseSharing),
-        ))
+        None
     }
 
     fn options_view(&self) -> OptionsView<'_> {
@@ -188,9 +179,13 @@ impl Randomon {
                     container(text(self.generation_label()).size(12))
                         .padding([3, 10])
                         .style(style::pill),
-                    text(rom::human_size(loaded.size_bytes))
-                        .size(12)
-                        .style(style::muted_text),
+                    text(if loaded.size_bytes > 0 {
+                        rom::human_size(loaded.size_bytes)
+                    } else {
+                        String::new()
+                    })
+                    .size(12)
+                    .style(style::muted_text),
                 ]
                 .spacing(SPACE_1)
                 .align_y(Alignment::Center),
@@ -217,6 +212,26 @@ impl Randomon {
             .is_some_and(|loaded| loaded.platform.supports_game_updates())
         {
             actions = actions.push(self.game_update_control());
+        }
+        if self
+            .rom
+            .as_ref()
+            .is_some_and(|loaded| loaded.platform == rom::Platform::NintendoSwitch)
+        {
+            actions = actions.push(
+                row![
+                    text("Mod for").size(13).style(style::muted_text),
+                    pick_list(
+                        SwitchLayout::ALL,
+                        Some(self.switch_layout),
+                        Message::SwitchLayoutChosen
+                    )
+                    .text_size(13)
+                    .padding([6, 10]),
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center),
+            );
         }
         actions = actions.push(
             button(text("Open game").wrapping(text::Wrapping::None))

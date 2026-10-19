@@ -1,7 +1,7 @@
-mod constants;
+pub mod constants;
 mod encounters;
 mod handler;
-mod held_items;
+pub mod held_items;
 mod items;
 mod moves;
 mod pokemon;
@@ -19,6 +19,7 @@ use randomon_ctr::rom::{bytes_source, identify_bytes, identify_file, open_file_s
 use randomon_java::SharedRandomSource;
 
 pub use handler::Gen7RomHandler;
+pub use moves::parse_move;
 pub use rom_entry::entry_for;
 
 #[derive(Clone, Copy, Debug, Default)]

@@ -1,14 +1,13 @@
-mod bdsp;
-
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Mutex;
 
 use clap::Parser;
+use randomon_bdsp::BdspFactory;
 use randomon_core::{
     HandlerRegistry, ProgressReporter, RandomizationError, RandomizationOptions, RomOutput,
-    write_directory_output,
+    SwitchLayout, write_directory_output,
 };
 use randomon_gen1::Gen1Factory;
 use randomon_gen2::Gen2Factory;
@@ -19,6 +18,7 @@ use randomon_gen6::Gen6Factory;
 use randomon_gen7::Gen7Factory;
 use randomon_java::RandomSource;
 use randomon_settings::Settings;
+use randomon_swsh::SwshFactory;
 
 const UTF8_BYTE_ORDER_MARK: [u8; 3] = [0xEF, 0xBB, 0xBF];
 const ROM_EXTENSIONS: [&str; 5] = ["sgb", "gbc", "gba", "nds", "cxi"];
@@ -30,7 +30,11 @@ const ROM_EXTENSIONS: [&str; 5] = ["sgb", "gbc", "gba", "nds", "cxi"];
     about = "Randomize Pokémon games with settings compatible with Universal Pokemon Randomizer ZX"
 )]
 struct Arguments {
-    #[arg(short = 'i', value_name = "SOURCE_ROM", help = "ROM to randomize")]
+    #[arg(
+        short = 'i',
+        value_name = "SOURCE_ROM",
+        help = "ROM to randomize, or a Switch game's romfs folder"
+    )]
     input: PathBuf,
 
     #[arg(
@@ -84,15 +88,8 @@ struct Arguments {
 
     #[arg(
         long,
-        value_name = "BDSP_SETTINGS_STRING",
-        help = "Brilliant Diamond/Shining Pearl settings string (input is a romfs folder)"
-    )]
-    bdsp_settings_string: Option<String>,
-
-    #[arg(
-        long,
         value_name = "LAYOUT",
-        help = "BDSP output layout: atmosphere, eden, ryubing or plain"
+        help = "Switch mod layout: atmosphere, eden, ryubing or plain"
     )]
     layout: Option<String>,
 }
@@ -119,13 +116,31 @@ fn registry() -> HandlerRegistry {
         .with(Gen5Factory)
         .with(Gen6Factory)
         .with(Gen7Factory)
+        .with(BdspFactory)
+        .with(SwshFactory)
 }
 
 fn is_3ds(generation: i32) -> bool {
     matches!(generation, 6 | 7)
 }
 
+fn is_switch(generation: i32) -> bool {
+    generation >= 8
+}
+
+fn switch_layout(arguments: &Arguments) -> Result<SwitchLayout, String> {
+    match arguments.layout.as_deref() {
+        None => Ok(SwitchLayout::default()),
+        Some(text) => SwitchLayout::parse(text).ok_or_else(|| {
+            format!("Unknown layout \"{text}\". Use atmosphere, eden, ryubing or plain.")
+        }),
+    }
+}
+
 fn output_mode(arguments: &Arguments, generation: i32) -> bool {
+    if is_switch(generation) {
+        return true;
+    }
     let mut save_as_directory = arguments.save_as_directory;
     if arguments.game_update.is_some() && is_3ds(generation) {
         if !save_as_directory {
@@ -147,19 +162,11 @@ fn absolute(path: &Path) -> PathBuf {
 }
 
 fn run(arguments: Arguments) -> Result<(), String> {
-    if bdsp::is_bdsp_input(&arguments.input) {
-        return bdsp::run(&bdsp::BdspArguments {
-            romfs: &arguments.input,
-            output: &arguments.output,
-            settings_string: arguments.bdsp_settings_string.as_deref(),
-            seed: arguments.seed,
-            layout: arguments.layout.as_deref(),
-        });
-    }
     if let Some(keys) = &arguments.aes_keys {
         randomon_formats::ctr::crypto::set_aes_keys_path(Some(absolute(keys)));
     }
     let settings = load_settings(&arguments)?;
+    let layout = switch_layout(&arguments)?;
     let registry = registry();
     let input = absolute(&arguments.input);
     let input_name = input.to_string_lossy().into_owned();
@@ -200,6 +207,7 @@ fn run(arguments: Arguments) -> Result<(), String> {
         output_path: (!save_as_directory).then(|| output.clone()),
         game_update,
         progress: stage_lines_on_terminal(),
+        switch_layout: layout,
         ..RandomizationOptions::default()
     };
     let result = registry

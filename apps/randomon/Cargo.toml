@@ -27,6 +27,7 @@ randomon_gen6.workspace = true
 randomon_gen7.workspace = true
 randomon_java.workspace = true
 randomon_bdsp.workspace = true
+randomon_swsh.workspace = true
 tokio = { version = "1", features = ["rt", "sync"] }
 semver = "1"
 serde = { version = "1", features = ["derive"] }

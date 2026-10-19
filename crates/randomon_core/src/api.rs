@@ -9,6 +9,7 @@ use crate::error::{RandomizationError, Result};
 use crate::handler::{OutputFile, RomHandler};
 use crate::progress::{ProgressPlan, ProgressReporter};
 use crate::randomizer::{Randomizer, RomOutput, planned_stages};
+use crate::switch::SwitchLayout;
 use crate::tweak::{TweakForRomFeedback, tweak_for_rom};
 
 pub trait RomHandlerFactory: Send + Sync {
@@ -68,6 +69,7 @@ pub struct RandomizationOptions {
     pub output_path: Option<PathBuf>,
     pub game_update: Option<PathBuf>,
     pub progress: Option<ProgressReporter>,
+    pub switch_layout: SwitchLayout,
 }
 
 impl Default for RandomizationOptions {
@@ -81,6 +83,7 @@ impl Default for RandomizationOptions {
             output_path: None,
             game_update: None,
             progress: None,
+            switch_layout: SwitchLayout::default(),
         }
     }
 }
@@ -313,11 +316,13 @@ pub fn randomize_with_handler(
         options.progress.clone(),
     ));
     handler.core_mut().progress = Some(Arc::clone(&progress));
+    handler.set_switch_layout(options.switch_layout);
+    let save_as_directory = options.save_as_directory || handler.is_switch_game();
     let run = Randomizer {
         settings: &settings,
         handler: &mut *handler,
         random_source,
-        save_as_directory: options.save_as_directory,
+        save_as_directory,
         settings_string,
         is_gen1,
         output_path: options.output_path.as_deref(),

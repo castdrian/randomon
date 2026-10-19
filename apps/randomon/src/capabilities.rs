@@ -3,6 +3,7 @@ use randomon_settings::{ExpCurve, JavaEnum, MiscTweak, RomTweakSupport, Trainers
 use crate::rom::Platform;
 
 pub const HIGHEST_POKEMON_GENERATION: i32 = 9;
+const SPECIES_PER_GENERATION: [usize; 7] = [151, 251, 386, 493, 649, 721, 809];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Capabilities {
@@ -63,11 +64,12 @@ impl Capabilities {
             Platform::GameBoyAdvance => 3,
             Platform::NintendoDs => 4,
             Platform::Nintendo3ds => 6,
+            Platform::NintendoSwitch => 8,
         })
     }
 
     pub fn for_generation(generation: i32) -> Self {
-        let generation = generation.clamp(1, 7);
+        let generation = generation.clamp(1, 8);
         Self {
             generation: Some(generation),
             is_yellow: false,
@@ -98,6 +100,17 @@ impl Capabilities {
 
     pub fn has_game(&self) -> bool {
         self.generation.is_some()
+    }
+
+    pub fn pokemon_generation(&self) -> Option<i32> {
+        let newest_species = SPECIES_PER_GENERATION
+            .iter()
+            .position(|&count| self.species_count <= count)
+            .map_or(SPECIES_PER_GENERATION.len() as i32 + 1, |index| {
+                index as i32 + 1
+            });
+        self.generation
+            .map(|generation| generation.min(newest_species))
     }
 
     pub fn generation_at_least(&self, generation: i32) -> bool {
@@ -203,7 +216,8 @@ fn tweak_support(generation: i32) -> RomTweakSupport {
             is_black2_white2: true,
         },
         6 => RomTweakSupport::Gen6,
-        _ => RomTweakSupport::Gen7,
+        7 => RomTweakSupport::Gen7,
+        _ => RomTweakSupport::Bdsp,
     }
 }
 
@@ -215,7 +229,8 @@ fn species_count(generation: i32) -> usize {
         4 => 493,
         5 => 649,
         6 => 721,
-        _ => 807,
+        7 => 807,
+        _ => 493,
     }
 }
 
@@ -231,6 +246,20 @@ mod tests {
         let gen7 = Capabilities::for_generation(7);
         assert_eq!(gen7.base_stat_update_generations(), vec![8, 9]);
         assert_eq!(gen7.move_update_generations(), vec![8, 9]);
+    }
+
+    #[test]
+    fn pokemon_generation_follows_the_species_in_the_game() {
+        let mut bdsp = Capabilities::for_generation(8);
+        bdsp.species_count = 493;
+        assert_eq!(bdsp.pokemon_generation(), Some(4));
+        assert_eq!(
+            Capabilities::for_generation(7).pokemon_generation(),
+            Some(7)
+        );
+        let mut swsh = Capabilities::for_generation(8);
+        swsh.species_count = 898;
+        assert_eq!(swsh.pokemon_generation(), Some(8));
     }
 
     #[test]

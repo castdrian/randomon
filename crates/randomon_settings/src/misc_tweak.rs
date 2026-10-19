@@ -67,6 +67,12 @@ misc_tweaks! {
     FastDistortionWorld = 20, "FAST_DISTORTION_WORLD", "fastDistortionWorld", "Fast Distortion World", 0;
     UpdateRotomFormeTyping = 21, "UPDATE_ROTOM_FORME_TYPING", "updateRotomFormeTyping", "Update Rotom Appliance Typings", 0;
     DisableLowHpMusic = 22, "DISABLE_LOW_HP_MUSIC", "disableLowHpMusic", "Disable Low HP Music", 0;
+    FollowingPokemonSpeeds = 23, "FOLLOWING_POKEMON_SPEEDS", "followingPokemonSpeeds", "HG/SS Following Pokemon Speeds", 0;
+    TrueSizePokemon = 24, "TRUE_SIZE_POKEMON", "trueSizePokemon", "True-Size Pokemon", 0;
+    RemoveFogAndWeather = 25, "REMOVE_FOG_AND_WEATHER", "removeFogAndWeather", "Remove Fog and Disruptive Weather", 0;
+    BikeEverywhere = 26, "BIKE_EVERYWHERE", "bikeEverywhere", "Bike Everywhere", 0;
+    SixtyFps = 27, "SIXTY_FPS", "sixtyFps", "60 FPS", 0;
+    FasterGameSpeed = 28, "FASTER_GAME_SPEED", "fasterGameSpeed", "Faster Game Speed", 0;
 }
 
 impl MiscTweak {
@@ -137,6 +143,7 @@ pub enum RomTweakSupport {
     },
     Gen6,
     Gen7,
+    Bdsp,
 }
 
 fn mask_of(entries: &[(MiscTweak, bool)]) -> i32 {
@@ -247,6 +254,15 @@ impl RomTweakSupport {
                 (BanLuckyEgg, true),
                 (SosBattlesForAll, true),
                 (RetainAltFormes, true),
+            ]),
+            Self::Bdsp => mask_of(&[
+                (BanLuckyEgg, true),
+                (FollowingPokemonSpeeds, true),
+                (TrueSizePokemon, true),
+                (RemoveFogAndWeather, true),
+                (BikeEverywhere, true),
+                (SixtyFps, true),
+                (FasterGameSpeed, true),
             ]),
         }
     }

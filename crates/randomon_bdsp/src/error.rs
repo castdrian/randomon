@@ -14,8 +14,6 @@ pub enum BdspError {
     Data(String),
     #[error("no valid choice for {0}")]
     EmptyPool(String),
-    #[error(transparent)]
-    Settings(#[from] crate::settings::SettingsError),
 }
 
 pub type Result<T> = std::result::Result<T, BdspError>;
@@ -27,5 +25,11 @@ pub fn data_error(message: impl Into<String>) -> BdspError {
 impl From<randomon_unity::UnityError> for BdspError {
     fn from(error: randomon_unity::UnityError) -> Self {
         BdspError::Data(error.to_string())
+    }
+}
+
+impl From<BdspError> for randomon_core::RandomizationError {
+    fn from(error: BdspError) -> Self {
+        randomon_core::RandomizationError::Io(error.to_string())
     }
 }

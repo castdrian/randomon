@@ -35,16 +35,6 @@ impl From<randomon_core::Progress> for RunProgress {
     }
 }
 
-impl From<randomon_bdsp::Progress> for RunProgress {
-    fn from(progress: randomon_bdsp::Progress) -> Self {
-        Self {
-            fraction: progress.fraction(),
-            label: progress.label,
-            detail: progress.detail,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finished {
     pub headline: &'static str,

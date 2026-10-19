@@ -1,0 +1,20 @@
+[package]
+name = "randomon_swsh"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+lz4_flex = { version = "0.14", default-features = false, features = ["std", "safe-encode", "safe-decode"] }
+randomon_java.workspace = true
+randomon_data.workspace = true
+randomon_settings.workspace = true
+randomon_log.workspace = true
+randomon_core.workspace = true
+randomon_gen7.workspace = true
+
+[lints]
+workspace = true

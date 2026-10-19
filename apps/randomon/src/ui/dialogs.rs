@@ -22,7 +22,7 @@ pub struct GenerationLimitDraft {
 impl GenerationLimitDraft {
     pub fn open(current: Option<GenRestrictions>, caps: &Capabilities) -> Self {
         let highest_generation = caps
-            .generation
+            .pokemon_generation()
             .unwrap_or(HIGHEST_RESTRICTABLE_GENERATION)
             .min(HIGHEST_RESTRICTABLE_GENERATION);
         let mut restrictions = current.unwrap_or_default();

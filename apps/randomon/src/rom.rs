@@ -21,6 +21,7 @@ pub enum Platform {
     GameBoyAdvance,
     NintendoDs,
     Nintendo3ds,
+    NintendoSwitch,
 }
 
 impl Platform {
@@ -43,6 +44,7 @@ impl Platform {
             Self::GameBoyAdvance => "Game Boy Advance",
             Self::NintendoDs => "Nintendo DS",
             Self::Nintendo3ds => "Nintendo 3DS",
+            Self::NintendoSwitch => "Nintendo Switch",
         }
     }
 
@@ -51,8 +53,50 @@ impl Platform {
     }
 }
 
+pub fn switch_romfs_containing(path: &Path) -> Option<PathBuf> {
+    path.ancestors()
+        .filter(|ancestor| ancestor.is_dir())
+        .find(|ancestor| engine::registry().detect_file(ancestor).is_some())
+        .map(Path::to_path_buf)
+}
+
+fn romfs_display_name(romfs: &Path) -> String {
+    let name = |path: &Path| {
+        path.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    };
+    match romfs.parent() {
+        Some(parent) if name(romfs).eq_ignore_ascii_case("romfs") => {
+            format!("{}/romfs", name(parent))
+        }
+        _ => name(romfs),
+    }
+}
+
+fn inspect_switch(romfs: PathBuf) -> Result<LoadedRom, String> {
+    let engine = engine::inspect_checked(&romfs, 0)?
+        .ok_or("That folder isn't a supported game or romfs folder.")?;
+    Ok(LoadedRom {
+        file_name: romfs_display_name(&romfs),
+        platform: Platform::NintendoSwitch,
+        size_bytes: 0,
+        rom_name: engine.rom_name.clone(),
+        engine: Some(engine),
+        path: romfs,
+    })
+}
+
 pub fn inspect(path: PathBuf) -> Result<LoadedRom, String> {
-    let platform = Platform::from_path(&path).ok_or("This file type isn't a supported ROM.")?;
+    let Some(platform) = Platform::from_path(&path) else {
+        return match switch_romfs_containing(&path) {
+            Some(romfs) => inspect_switch(romfs),
+            None if path.is_dir() => {
+                Err("That folder isn't a supported game or romfs folder.".to_owned())
+            }
+            None => Err("This file type isn't a supported ROM.".to_owned()),
+        };
+    };
     let size_bytes = std::fs::metadata(&path)
         .map_err(|error| format!("Couldn't read the file: {error}"))?
         .len();
@@ -93,5 +137,20 @@ pub fn human_size(bytes: u64) -> String {
         format!("{bytes} B")
     } else {
         format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+#[cfg(test)]
+mod switch_tests {
+    use super::*;
+
+    #[test]
+    fn loads_a_bdsp_romfs_folder() {
+        let Some(romfs) = std::env::var_os("RANDOMON_BDSP_ROMFS").map(PathBuf::from) else {
+            return;
+        };
+        let loaded = inspect(romfs).expect("loads");
+        assert_eq!(loaded.platform, Platform::NintendoSwitch);
+        assert_eq!(loaded.engine.expect("engine").generation, 8);
     }
 }

@@ -39,15 +39,16 @@ fn misc_tweaks_match_java_declarations() {
     let vectors = load("constants.json");
     let tweaks = vectors.field("misc_tweaks");
     let java_tweaks = tweaks.field("tweaks").as_array();
-    assert_eq!(MiscTweak::ALL.len(), java_tweaks.len());
-    for (tweak, java) in MiscTweak::ALL.iter().zip(java_tweaks) {
+    assert!(MiscTweak::ALL.len() >= java_tweaks.len());
+    let upstream_tweaks = &MiscTweak::ALL[..java_tweaks.len()];
+    for (tweak, java) in upstream_tweaks.iter().zip(java_tweaks) {
         assert_eq!(tweak.constant_name(), java.field("constant").as_string());
         assert_eq!(tweak.value(), java.field("value").as_i32());
         assert_eq!(tweak.name(), java.field("name").as_string());
         assert_eq!(tweak.priority(), java.field("priority").as_i32());
         assert_eq!(MiscTweak::from_value(tweak.value()), Some(*tweak));
     }
-    let every_tweak = MiscTweak::ALL
+    let every_tweak = upstream_tweaks
         .iter()
         .fold(0, |mask, tweak| mask | tweak.value());
     let order: Vec<String> = MiscTweak::in_application_order(every_tweak, every_tweak)

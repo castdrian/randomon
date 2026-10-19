@@ -5,6 +5,7 @@ mod handler;
 mod progress;
 mod randomizer;
 mod state;
+mod switch;
 mod tweak;
 
 pub use api::{
@@ -19,4 +20,5 @@ pub use randomizer::{Randomizer, RandomizerRun, RomOutput};
 pub use state::{
     DeferredError, EngineState, EvolutionUpdates, HandlerCore, PokemonPool, TrainerMovesetCaches,
 };
+pub use switch::{Ips32Patch, SWITCH_MOD_NAME, SwitchLayout, SwitchMod};
 pub use tweak::{TweakForRomFeedback, tweak_for_rom};
