@@ -23,6 +23,22 @@ impl Game {
         }
     }
 
+    pub fn rom_name(self) -> &'static str {
+        match self {
+            Game::BrilliantDiamond => "Pokemon Brilliant Diamond",
+            Game::ShiningPearl => "Pokemon Shining Pearl",
+        }
+    }
+
+    pub fn from_folders(romfs: &std::path::Path) -> Option<Game> {
+        romfs.ancestors().find_map(|folder| {
+            folder
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(Game::from_title_id)
+        })
+    }
+
     pub fn from_title_id(text: &str) -> Option<Game> {
         Game::ALL
             .into_iter()

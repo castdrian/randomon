@@ -287,19 +287,6 @@ impl Row {
             Row::Caption { .. } => {}
         }
     }
-
-    pub fn hidden_labels(&self, caps: &Capabilities) -> Vec<&'static str> {
-        match self {
-            Row::Item(item) if !item.is_visible(caps) => vec![item.label.label()],
-            Row::Radio(radio) => radio
-                .choices
-                .iter()
-                .filter(|choice| !choice.is_visible(caps))
-                .map(|choice| choice.label.label())
-                .collect(),
-            _ => Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -310,31 +297,26 @@ pub enum CardBody {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Card {
-    pub id: &'static str,
     pub section: Section,
     pub title: Text,
     pub summary: &'static str,
     pub visible: Visibility,
-    pub unavailable_note: Option<&'static str>,
     pub rows: &'static [Row],
     pub body: CardBody,
 }
 
 impl Card {
     pub const fn new(
-        id: &'static str,
         section: Section,
         title: Text,
         summary: &'static str,
         rows: &'static [Row],
     ) -> Self {
         Self {
-            id,
             section,
             title,
             summary,
             visible: always,
-            unavailable_note: None,
             rows,
             body: CardBody::Rows,
         }
@@ -342,11 +324,6 @@ impl Card {
 
     pub const fn shown_when(mut self, visible: Visibility) -> Self {
         self.visible = visible;
-        self
-    }
-
-    pub const fn unavailable_note(mut self, key: &'static str) -> Self {
-        self.unavailable_note = Some(key);
         self
     }
 

@@ -50,6 +50,19 @@ impl CardMatch {
         }
     }
 
+    pub fn has_options(&self, caps: &Capabilities) -> bool {
+        if !self.card.is_visible(caps) {
+            return false;
+        }
+        match self.card.body {
+            CardBody::MiscTweaks => !self.tweaks.is_empty(),
+            CardBody::Rows => self
+                .rows
+                .iter()
+                .any(|row| !matches!(row, Row::Caption { .. }) && row.is_visible(caps)),
+        }
+    }
+
     pub fn match_count(&self) -> usize {
         self.rows
             .iter()
@@ -137,7 +150,7 @@ mod tests {
     #[test]
     fn every_option_label_resolves_from_the_bundle() {
         for card in catalog::CARDS {
-            assert_ne!(card.title.title(), "", "card {}", card.id);
+            assert_ne!(card.title.title(), "", "card in {:?}", card.section);
             for row in card.rows {
                 let labels: Vec<_> = match row {
                     Row::Item(item) => vec![item.label],

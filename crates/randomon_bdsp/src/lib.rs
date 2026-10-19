@@ -66,9 +66,11 @@ impl RomHandlerFactory for BdspFactory {
     }
 
     fn detect_file(&self, path: &Path) -> Option<DetectedGame> {
-        romfs_root(path).map(|_| DetectedGame {
+        romfs_root(path).map(|romfs| DetectedGame {
             generation: GENERATION,
-            rom_name: ROM_NAME.to_owned(),
+            rom_name: Game::from_folders(&romfs)
+                .map_or(ROM_NAME, Game::rom_name)
+                .to_owned(),
             rom_code: ROM_CODE.to_owned(),
         })
     }

@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::time::Duration;
 
 use iced::alignment::Horizontal;
@@ -35,7 +34,6 @@ pub const SEMIBOLD: Font = Font {
 pub enum OptionMessage {
     Edit(Edit),
     Action(Action),
-    ToggleDisclosure(&'static str),
     Ignore,
 }
 
@@ -45,19 +43,13 @@ pub struct OptionsView<'a> {
     pub settings: &'a Settings,
     pub caps: &'a Capabilities,
     pub starters: &'a [StarterChoice],
-    pub disclosures: &'a HashSet<&'static str>,
 }
 
 impl<'a> OptionsView<'a> {
-    pub fn cards(&self, matches: &[CardMatch], width: f32, show_disclosures: bool) -> El<'a> {
+    pub fn cards(&self, matches: &[CardMatch], width: f32) -> El<'a> {
         let cards: Vec<(f32, El<'a>)> = matches
             .iter()
-            .map(|card_match| {
-                (
-                    self.estimated_height(card_match),
-                    self.card(card_match, show_disclosures),
-                )
-            })
+            .map(|card_match| (self.estimated_height(card_match), self.card(card_match)))
             .collect();
         if width < TWO_COLUMN_MIN_WIDTH || cards.len() < 2 {
             return Column::with_children(cards.into_iter().map(|(_, card)| card))
@@ -67,20 +59,13 @@ impl<'a> OptionsView<'a> {
         two_columns(cards)
     }
 
-    fn card(&self, card_match: &CardMatch, show_disclosure: bool) -> El<'a> {
+    fn card(&self, card_match: &CardMatch) -> El<'a> {
         let card = card_match.card;
-        if !card.is_visible(self.caps) {
-            return unavailable_card(card);
-        }
         let body = match card.body {
             CardBody::Rows => self.rows(&card_match.rows),
-            CardBody::MiscTweaks => self.tweaks(&card_match.tweaks, card),
+            CardBody::MiscTweaks => self.tweaks(&card_match.tweaks),
         };
-        let mut content = column![card_header(card), body].spacing(SPACE_2);
-        if show_disclosure && let Some(disclosure) = self.disclosure(card) {
-            content = content.push(disclosure);
-        }
-        container(content)
+        container(column![card_header(card), body].spacing(SPACE_2))
             .padding(20)
             .width(Fill)
             .style(style::card)
@@ -385,13 +370,7 @@ impl<'a> OptionsView<'a> {
         with_help(entry, choice.help_text())
     }
 
-    fn tweaks(&self, tweaks: &[MiscTweak], card: &'static Card) -> El<'a> {
-        if tweaks.is_empty() {
-            return text(card.unavailable_note.map_or("", crate::bundle::label))
-                .size(13)
-                .style(style::muted_text)
-                .into();
-        }
+    fn tweaks(&self, tweaks: &[MiscTweak]) -> El<'a> {
         grid(tweaks.iter().map(|tweak| self.tweak_chip(*tweak)))
             .fluid(TWEAK_CHIP_WIDTH)
             .spacing(SPACE_1)
@@ -426,38 +405,6 @@ impl<'a> OptionsView<'a> {
         .style(style::chip(selected))
         .on_press(OptionMessage::Edit(Edit::MiscTweak(tweak, !selected)));
         with_help(chip, help)
-    }
-
-    fn disclosure(&self, card: &'static Card) -> Option<El<'a>> {
-        let hidden = hidden_labels(card, self.caps);
-        if hidden.is_empty() {
-            return None;
-        }
-        let open = self.disclosures.contains(card.id);
-        let noun = if hidden.len() == 1 {
-            "option"
-        } else {
-            "options"
-        };
-        let toggle = button(
-            row![
-                text(if open { "▾" } else { "▸" }).size(12),
-                text(format!("{} {noun} unavailable for this game", hidden.len())).size(12),
-            ]
-            .spacing(6)
-            .align_y(Alignment::Center),
-        )
-        .padding([4, 8])
-        .style(style::quiet_button)
-        .on_press(OptionMessage::ToggleDisclosure(card.id));
-        let mut content = column![toggle].spacing(4);
-        if open {
-            content = content.push(
-                container(text(hidden.join("  ·  ")).size(12).style(style::muted_text))
-                    .padding([0, 8]),
-            );
-        }
-        Some(content.into())
     }
 
     fn estimated_height(&self, card_match: &CardMatch) -> f32 {
@@ -522,45 +469,6 @@ fn card_header<'a>(card: &'static Card) -> El<'a> {
     ]
     .spacing(4)
     .into()
-}
-
-fn unavailable_card<'a>(card: &'static Card) -> El<'a> {
-    let mut content = column![
-        card_header(card),
-        text("Unavailable for this game")
-            .size(13)
-            .style(style::accent_text),
-    ]
-    .spacing(SPACE_1);
-    if let Some(note) = card.unavailable_note {
-        content = content.push(
-            text(crate::bundle::label(note))
-                .size(12)
-                .style(style::muted_text),
-        );
-    }
-    container(content)
-        .padding(20)
-        .width(Fill)
-        .style(style::subtle_card)
-        .into()
-}
-
-fn hidden_labels(card: &'static Card, caps: &Capabilities) -> Vec<&'static str> {
-    let mut labels: Vec<&'static str> = card
-        .rows
-        .iter()
-        .flat_map(|row| row.hidden_labels(caps))
-        .collect();
-    if card.body == CardBody::MiscTweaks {
-        labels.extend(
-            MiscTweak::ALL
-                .iter()
-                .filter(|tweak| !caps.has_misc_tweak(**tweak))
-                .map(|tweak| options::misc_tweak_label(*tweak)),
-        );
-    }
-    labels
 }
 
 fn nest<'a>(content: El<'a>, nested: bool) -> El<'a> {

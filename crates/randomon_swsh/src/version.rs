@@ -139,6 +139,14 @@ pub fn sibling_exefs(romfs: &Path) -> Option<PathBuf> {
     candidate.is_dir().then_some(candidate)
 }
 
+pub fn title_id_from_folders(romfs: &Path) -> Option<u64> {
+    romfs.ancestors().find_map(|folder| {
+        let name = folder.file_name()?.to_str()?;
+        let title_id = u64::from_str_radix(name, 16).ok()?;
+        Game::from_title_id(title_id).map(|_| title_id)
+    })
+}
+
 pub fn detect(romfs: &Path) -> Option<Detection> {
     detect_with_exefs(romfs, sibling_exefs(romfs).as_deref())
 }
@@ -150,7 +158,8 @@ pub fn detect_with_exefs(romfs: &Path, exefs: Option<&Path>) -> Option<Detection
     let version = data_version(romfs)?;
     let title_id = exefs
         .and_then(|exefs| std::fs::read(exefs.join("main.npdm")).ok())
-        .and_then(|npdm| read_title_id(&npdm).ok());
+        .and_then(|npdm| read_title_id(&npdm).ok())
+        .or_else(|| title_id_from_folders(romfs));
     let build_id = exefs
         .and_then(|exefs| std::fs::read(exefs.join("main")).ok())
         .and_then(|nso| read_build_id(&nso).ok());
@@ -189,6 +198,11 @@ mod tests {
         assert_eq!(Game::Shield.title_id_text(), "01008DB008C2C000");
         assert_eq!(Game::from_title_id(1), None);
         assert!(read_title_id(&[0; 8]).is_err());
+        assert_eq!(
+            title_id_from_folders(Path::new("/dumps/01008DB008C2C000/romfs")),
+            Some(Game::Shield.title_id())
+        );
+        assert_eq!(title_id_from_folders(Path::new("/dumps/romfs")), None);
     }
 
     #[test]

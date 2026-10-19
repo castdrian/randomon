@@ -1,7 +1,6 @@
 mod game_update;
 mod view;
 
-use std::collections::HashSet;
 use std::path::PathBuf;
 
 use iced::theme::Mode;
@@ -57,7 +56,6 @@ struct Randomon {
     settings_string: String,
     seed: String,
     search: String,
-    disclosures: HashSet<&'static str>,
     dialog: Option<Dialog>,
     custom_names: CustomNames,
     status: Option<Status>,
@@ -132,7 +130,6 @@ impl Randomon {
             settings_string: String::new(),
             seed: random_seed().to_string(),
             search: String::new(),
-            disclosures: HashSet::new(),
             dialog: None,
             custom_names: CustomNames::default_names(),
             status: None,
@@ -324,11 +321,6 @@ impl Randomon {
                     self.settings.current_restrictions,
                     &self.caps,
                 )));
-            }
-            OptionMessage::ToggleDisclosure(card) => {
-                if !self.disclosures.remove(card) {
-                    self.disclosures.insert(card);
-                }
             }
             OptionMessage::Ignore => {}
         }

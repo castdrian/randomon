@@ -14,6 +14,7 @@ use randomon_log::LogWriter;
 use randomon_settings::{MiscTweak, Settings};
 
 use crate::constants;
+use crate::exefs::Game;
 use crate::handler::BdspRomHandler;
 use crate::tweaks::FASTER_GAME_SPEED;
 
@@ -631,7 +632,7 @@ impl RomHandler for BdspRomHandler {
     }
 
     fn rom_name(&self) -> String {
-        "Pokemon Brilliant Diamond / Shining Pearl".to_owned()
+        self.game.map_or(crate::ROM_NAME, Game::rom_name).to_owned()
     }
 
     fn rom_code(&self) -> String {

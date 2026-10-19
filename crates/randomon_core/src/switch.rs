@@ -1,7 +1,5 @@
 use crate::handler::OutputFile;
 
-pub const SWITCH_MOD_NAME: &str = "randomon";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SwitchLayout {
     #[default]
@@ -66,13 +64,10 @@ impl SwitchLayout {
                 format!("atmosphere/contents/{title_id}/romfs"),
                 format!("atmosphere/exefs_patches/{exefs_patch_folder}"),
             ),
-            Self::Eden => (
-                format!("{title_id}/{SWITCH_MOD_NAME}/romfs"),
-                format!("{title_id}/{SWITCH_MOD_NAME}/exefs"),
-            ),
+            Self::Eden => (format!("{title_id}/romfs"), format!("{title_id}/exefs")),
             Self::Ryubing => (
-                format!("mods/contents/{title_id}/{SWITCH_MOD_NAME}/romfs"),
-                format!("mods/contents/{title_id}/{SWITCH_MOD_NAME}/exefs"),
+                format!("mods/contents/{title_id}/romfs"),
+                format!("mods/contents/{title_id}/exefs"),
             ),
             Self::Plain => ("romfs".to_owned(), "exefs".to_owned()),
         }
@@ -204,19 +199,19 @@ mod tests {
     }
 
     #[test]
-    fn emulator_layouts_put_romfs_and_exefs_under_a_named_mod() {
+    fn emulator_layouts_put_romfs_and_exefs_under_the_title_id() {
         assert_eq!(
             paths(SwitchLayout::Eden)[..2],
             [
-                "0100000011D90000/randomon/romfs/Data/a.bundle",
-                "0100000011D90000/randomon/exefs/ABCD.ips",
+                "0100000011D90000/romfs/Data/a.bundle",
+                "0100000011D90000/exefs/ABCD.ips",
             ]
         );
         assert_eq!(
             paths(SwitchLayout::Ryubing)[..2],
             [
-                "mods/contents/0100000011D90000/randomon/romfs/Data/a.bundle",
-                "mods/contents/0100000011D90000/randomon/exefs/ABCD.ips",
+                "mods/contents/0100000011D90000/romfs/Data/a.bundle",
+                "mods/contents/0100000011D90000/exefs/ABCD.ips",
             ]
         );
     }

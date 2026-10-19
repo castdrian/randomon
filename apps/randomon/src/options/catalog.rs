@@ -1212,28 +1212,24 @@ const PICKUP_ITEMS: &[Row] = &[
 
 pub static CARDS: &[Card] = &[
     Card::new(
-        "general",
         Section::PokemonTraits,
         Text::Bundle("GUI.generalOptionsPanel.title"),
         "Rules that shape the Pokémon pool for every other option.",
         GENERAL,
     ),
     Card::new(
-        "base-statistics",
         Section::PokemonTraits,
         Text::Bundle("GUI.pbsPanel.title"),
         "Shuffle or reroll base stats and standardize EXP curves.",
         BASE_STATISTICS,
     ),
     Card::new(
-        "types",
         Section::PokemonTraits,
         Text::Bundle("GUI.ptPanel.title"),
         "Give every species new types.",
         TYPES,
     ),
     Card::new(
-        "abilities",
         Section::PokemonTraits,
         Text::Bundle("GUI.paPanel.title"),
         "Swap abilities and keep problem abilities out of the pool.",
@@ -1241,56 +1237,48 @@ pub static CARDS: &[Card] = &[
     )
     .shown_when(v::generation_3_plus),
     Card::new(
-        "evolutions",
         Section::PokemonTraits,
         Text::Bundle("GUI.pePanel.title"),
         "Change what each Pokémon evolves into and how.",
         EVOLUTIONS,
     ),
     Card::new(
-        "starters",
         Section::StartersStaticsTrades,
         Text::Bundle("GUI.spPanel.title"),
         "Pick or randomize the starter Pokémon.",
         STARTERS,
     ),
     Card::new(
-        "statics",
         Section::StartersStaticsTrades,
         Text::Bundle("GUI.stpPanel.title"),
         "Legendaries, gifts and other fixed encounters.",
         STATICS,
     ),
     Card::new(
-        "trades",
         Section::StartersStaticsTrades,
         Text::Bundle("GUI.igtPanel.title"),
         "The Pokémon you give and receive in in-game trades.",
         TRADES,
     ),
     Card::new(
-        "move-data",
         Section::MovesAndMovesets,
         Text::Bundle("GUI.mdPanel.title"),
         "Power, accuracy, PP, type and category of every move.",
         MOVE_DATA,
     ),
     Card::new(
-        "movesets",
         Section::MovesAndMovesets,
         Text::Bundle("GUI.pmsPanel.title"),
         "The moves each Pokémon learns by leveling up.",
         MOVESETS,
     ),
     Card::new(
-        "trainers",
         Section::FoePokemon,
         Text::Bundle("GUI.tpPanel.title"),
         "Trainer teams, their strength and their held items.",
         TRAINERS,
     ),
     Card::new(
-        "totems",
         Section::FoePokemon,
         Text::Bundle("GUI.totpPanel.title"),
         "Totem Pokémon, their allies and auras.",
@@ -1298,53 +1286,44 @@ pub static CARDS: &[Card] = &[
     )
     .shown_when(v::generation_7),
     Card::new(
-        "wild",
         Section::WildPokemon,
         Text::Bundle("GUI.wpPanel.title"),
         "Encounter tables, catch rates, levels and held items.",
         WILD,
     ),
     Card::new(
-        "tm-moves",
         Section::TmsAndTutors,
         Text::Bundle("GUI.tmMovesPanel.title"),
         "Which move each TM teaches.",
         TM_MOVES,
     ),
     Card::new(
-        "tm-compatibility",
         Section::TmsAndTutors,
         Text::Bundle("GUI.thcPanel.title"),
         "Which Pokémon can learn each TM and HM.",
         TM_COMPATIBILITY,
     ),
     Card::new(
-        "tutor-moves",
         Section::TmsAndTutors,
         Text::Bundle("GUI.mtMovesPanel.title"),
         "Which move each move tutor teaches.",
         TUTOR_MOVES,
     )
-    .shown_when(v::move_tutors)
-    .unavailable_note("GUI.mtNoExistLabel.text"),
+    .shown_when(v::move_tutors),
     Card::new(
-        "tutor-compatibility",
         Section::TmsAndTutors,
         Text::Bundle("GUI.mtcPanel.title"),
         "Which Pokémon each move tutor will teach.",
         TUTOR_COMPATIBILITY,
     )
-    .shown_when(v::move_tutors)
-    .unavailable_note("GUI.mtNoExistLabel.text"),
+    .shown_when(v::move_tutors),
     Card::new(
-        "field-items",
         Section::Items,
         Text::Bundle("GUI.fiPanel.title"),
         "Item balls and hidden items around the world.",
         FIELD_ITEMS,
     ),
     Card::new(
-        "shop-items",
         Section::Items,
         Text::Bundle("GUI.shPanel.title"),
         "Stock of the special shops.",
@@ -1352,7 +1331,6 @@ pub static CARDS: &[Card] = &[
     )
     .shown_when(v::shop_randomization),
     Card::new(
-        "pickup-items",
         Section::Items,
         Text::Bundle("GUI.puPanel.title"),
         "Items found by Pokémon with the Pickup ability.",
@@ -1360,13 +1338,11 @@ pub static CARDS: &[Card] = &[
     )
     .shown_when(v::pickup_items),
     Card::new(
-        "misc-tweaks",
         Section::MiscTweaks,
         Text::Bundle("GUI.miscPanel.title"),
         "Optional patches and quality-of-life fixes for the game.",
         &[],
     )
-    .unavailable_note("GUI.miscNoneAvailableLabel.text")
     .misc_tweaks(),
 ];
 

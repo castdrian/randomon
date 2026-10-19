@@ -9,7 +9,7 @@ use randomon_java::SharedRandomSource;
 use crate::bundles::Bundles;
 use crate::constants;
 use crate::error::Result;
-use crate::exefs::{Game, starter_patches};
+use crate::exefs::{Game, STARTER_OFFSETS, starter_patch};
 use crate::statics::{ScriptAsset, load_battle_scripts};
 use crate::tables::Tables;
 use crate::text::{
@@ -100,6 +100,7 @@ pub struct BdspRomHandler {
     pub(crate) battle_scripts: Vec<ScriptAsset>,
     pub(crate) starters: [i32; 3],
     pub(crate) layout: SwitchLayout,
+    pub(crate) game: Option<Game>,
     pub(crate) file_name: String,
 }
 
@@ -140,6 +141,7 @@ impl BdspRomHandler {
             battle_scripts: Vec::new(),
             starters: DEFAULT_STARTERS,
             layout: SwitchLayout::default(),
+            game: Game::from_folders(romfs),
             file_name: file_name.to_owned(),
         };
         handler.core.data = GameData::new();
@@ -179,6 +181,11 @@ impl BdspRomHandler {
         }
     }
 
+    pub(crate) fn games(&self) -> Vec<Game> {
+        self.game
+            .map_or_else(|| Game::ALL.to_vec(), |game| vec![game])
+    }
+
     pub(crate) fn save_files(&mut self) -> randomon_core::Result<Vec<OutputFile>> {
         self.save_pokemon()?;
         self.save_moves()?;
@@ -197,10 +204,21 @@ impl BdspRomHandler {
             Vec::new()
         } else {
             let [grass, fire, water] = self.starters.map(|number| number as u16);
-            starter_patches([grass, fire, water])
+            let games = self.games();
+            STARTER_OFFSETS
+                .iter()
+                .filter(|offsets| games.contains(&offsets.game))
+                .map(|offsets| {
+                    (
+                        offsets.build_id.to_owned(),
+                        starter_patch(offsets, [grass, fire, water]).to_bytes(),
+                    )
+                })
+                .collect()
         };
         let switch_mod = SwitchMod {
-            title_ids: Game::ALL
+            title_ids: self
+                .games()
                 .iter()
                 .map(|game| game.title_id().to_owned())
                 .collect(),

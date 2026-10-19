@@ -52,7 +52,6 @@ impl Randomon {
             settings: &self.settings,
             caps: &self.caps,
             starters: &self.starters,
-            disclosures: &self.disclosures,
         }
     }
 
@@ -365,9 +364,10 @@ impl Randomon {
     fn section_content(&self, width: f32) -> Element<'_, Message> {
         let matches: Vec<CardMatch> = catalog::cards_in(self.section)
             .map(|card| CardMatch::whole(card, &self.caps))
+            .filter(|card_match| card_match.has_options(&self.caps))
             .collect();
         self.options_view()
-            .cards(&matches, width, true)
+            .cards(&matches, width)
             .map(Message::Option)
     }
 
@@ -404,7 +404,7 @@ impl Randomon {
                     .style(button::text)
                     .on_press(Message::SectionSelected(*section)),
                     self.options_view()
-                        .cards(&section_results, width, false)
+                        .cards(&section_results, width)
                         .map(Message::Option),
                 ]
                 .spacing(SPACE_1)
