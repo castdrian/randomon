@@ -18,7 +18,7 @@ use randomon_settings::Settings;
 use crate::capabilities::Capabilities;
 use crate::run::{ProgressSink, RunProgress};
 
-const LARGEST_INSPECTED_ROM: u64 = 64 * 1024 * 1024;
+const LARGEST_INSPECTED_ROM: u64 = 512 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub enum RomSource {

@@ -462,8 +462,7 @@ impl Randomon {
         };
         let Some(game) = loaded.engine.clone() else {
             self.status = Some(Status::Error(
-                "Randomizing this generation isn't ported yet. Use UPR ZX for it for now."
-                    .to_owned(),
+                "This game couldn't be loaded for randomizing. Open it again to retry.".to_owned(),
             ));
             return Task::none();
         };
@@ -582,6 +581,13 @@ impl Randomon {
     }
 
     fn loaded_rom(&mut self, loaded: LoadedRom) {
+        if loaded.engine.is_none() && self.generation_override.is_none() {
+            self.status = Some(Status::Error(format!(
+                "{} isn't a Pokémon game randomon recognises. Use an unmodified dump of a supported game.",
+                loaded.file_name
+            )));
+            return;
+        }
         self.bdsp = None;
         self.game_update = None;
         self.caps = match (&loaded.engine, self.generation_override) {
@@ -592,7 +598,7 @@ impl Randomon {
         self.status = Some(match &loaded.engine {
             Some(game) => Status::Info(format!("Loaded {}", game.rom_name)),
             None => Status::Info(format!(
-                "Loaded {}. Randomizing this generation isn't ported yet, so its options are a preview.",
+                "Loaded {} as a preview. Its options can't be randomized.",
                 loaded.file_name
             )),
         });
@@ -727,8 +733,31 @@ mod tests {
         let path = directory.join(format!("Test Game.{extension}"));
         std::fs::write(&path, [0u8; 16]).expect("rom file");
         let mut app = Randomon::new();
+        app.generation_override = Some(preview_generation(extension));
         app.load_game(path);
         app
+    }
+
+    fn preview_generation(extension: &str) -> i32 {
+        match extension {
+            "gb" => 1,
+            "gbc" => 2,
+            "gba" => 3,
+            "nds" => 5,
+            _ => 6,
+        }
+    }
+
+    #[test]
+    fn an_unrecognised_rom_is_rejected_instead_of_previewed() {
+        let directory = std::env::temp_dir().join("randomon-app-tests");
+        std::fs::create_dir_all(&directory).expect("temp dir");
+        let path = directory.join("Not A Game.nds");
+        std::fs::write(&path, [0u8; 16]).expect("rom file");
+        let mut app = Randomon::new();
+        app.load_game(path);
+        assert!(app.rom.is_none());
+        assert!(matches!(app.status, Some(Status::Error(_))));
     }
 
     fn edit(app: &mut Randomon, edit: Edit) {
