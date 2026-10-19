@@ -35,13 +35,8 @@ status = "verified"
 
 [[rows]]
 label = "Generation 8 · Nintendo Switch"
-value = "Brilliant Diamond, Shining Pearl"
+value = "Brilliant Diamond, Shining Pearl, Sword, Shield"
 status = "verified"
-
-[[rows]]
-label = "Generation 8 · Nintendo Switch"
-value = "Sword, Shield (with Isle of Armor and Crown Tundra data)"
-status = "partial"
 
 [[legend]]
 status = "verified"
