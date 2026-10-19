@@ -1,3 +1,10 @@
+## [1.2.2](https://github.com/castdrian/randomon/compare/v1.2.1...v1.2.2) (2026-10-19)
+
+### Bug Fixes
+
+* **app:** load large DS ROMs such as Black and White instead of showing a Generation 4 preview ([220b30b](https://github.com/castdrian/randomon/commit/220b30bdf48c7f2e7378301d49fde87f493b5745))
+* **deps:** update rustls to 0.23.46 for its security fixes ([c02b11e](https://github.com/castdrian/randomon/commit/c02b11e5d66621bbb9a13e077aef497612c7d339))
+
 ## [1.2.1](https://github.com/castdrian/randomon/compare/v1.2.0...v1.2.1) (2026-10-12)
 
 ### Bug Fixes
