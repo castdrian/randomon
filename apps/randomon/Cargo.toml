@@ -9,7 +9,7 @@ description = "A modern, cross-platform Pokémon game randomizer compatible with
 
 [dependencies]
 iced = { version = "0.14", features = ["advanced", "image", "svg", "tokio"] }
-rfd = "0.17"
+rfd = "0.18"
 open = "5.3"
 log.workspace = true
 env_logger.workspace = true
